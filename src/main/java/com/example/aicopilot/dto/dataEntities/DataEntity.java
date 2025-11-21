@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
 /**
  * Model for DataEntity
- * [Sync] Aligned with DataModeler v14.0 System Message
+ * [Sync] Aligned with DataModeler v26.2.0 (Migration Phase 2)
  */
 public record DataEntity(
         @JsonProperty("id")
@@ -14,11 +14,21 @@ public record DataEntity(
 
         @JsonProperty("alias")
         @JsonPropertyDescription("""
-                Public Key for Form Mapping.
+                Public Key for Form Mapping & Smart Binding.
                 MUST be 'UpperCamelCase' (e.g., 'WorkEmail').
                 NO underscores, NO numbers at start.
                 """)
         String alias,
+
+        @JsonProperty("sourceNodeId")
+        @JsonPropertyDescription("""
+                [NEW] The ID of the Activity Node that generates or captures this data.
+                This creates a lineage record within the Global Data Pool.
+                - Input data from a form -> Use User Task ID.
+                - Output from a system action -> Use Service Task ID.
+                - Global Constants -> null.
+                """)
+        String sourceNodeId,
 
         @JsonProperty("label")
         @JsonPropertyDescription("""

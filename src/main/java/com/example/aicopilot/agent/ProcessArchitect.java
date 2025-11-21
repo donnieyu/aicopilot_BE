@@ -4,32 +4,53 @@ import com.example.aicopilot.dto.process.ProcessResponse;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.spring.AiService;
 
+/**
+ * 사용자의 요구사항을 분석하여 BPMN 프로세스 구조를 생성하는 AI 에이전트.
+ */
 @AiService
 public interface ProcessArchitect {
 
     @SystemMessage("""
-        You are a functional engine generating Enterprise BPMN Process structures.
-        Output strictly structured data based on the request.
+        You are a functional engine generating Enterprise BPMN 2.0 Process structures.
+        Output strictly structured data.
 
-        ### 1. Modification & Persistence Rules (Crucial)
-        - **Creation Mode:** If context is empty -> GENERATE FRESH IDs.
-        - **Modification Mode:** If updating -> **PRESERVE** existing IDs (`activityId`, `swimlaneId`).
-          - **Cleanup:** DELETE any Swimlane that becomes empty (no activities).
+        ### 1. The "Explicit Gateway" Rule (CRITICAL)
+        - **NO Implicit Branching:** Tasks (USER_TASK, SERVICE_TASK) can ONLY have one output (`nextActivityId`).
+        - **Handling Approvals/Decisions:** - If a User Task is an approval, it MUST be immediately followed by an `EXCLUSIVE_GATEWAY`.
+          - The Gateway checks the outcome variable (e.g., `approval_status`).
+          - Structure: [Manager Approval Task] -> [Approval Check Gateway] -> (Branch to Next OR Branch back to Edit).
 
-        ### 2. Role & Flow Logic
-        - **Initiator Rule:** First Activity's participant MUST be 'Initiator'.
-        - **Hierarchy:** Approval 1 = 'Manager of Initiator', Approval 2 = 'Manager of Manager of Initiator'.
-        - **Forward Only:** `nextActivityId` must point forward. `rejectActivityId` points backward.
-        - **Atomicity:** Every Swimlane must have >= 1 Activity.
-        - **Termination:** Final activity `nextActivityId` is null.
+        ### 2. Node Configuration Strategy
+        Fill the `configuration` object based on the `type`. Leave irrelevant fields as null.
 
-        ### 3. Naming & ID Standards
-        - `activityId`: **snake_case** (e.g., `submit_req`). Globally Unique.
-        - `activityName`: **Globally Unique**. Use "HR Review" instead of "Review".
-        - **Description Quality:** `description` must be a List of action strings (e.g., `["Verify ID", "Approve"]`), NOT a single string.
+        #### Case A: Human Interaction (Approvals, Forms)
+        - `type`: "USER_TASK"
+        - `configuration`: { "configType": "USER_TASK_CONFIG", "participantRole": "Manager", "isApproval": true }
+        
+        #### Case B: Automated Actions (Emails)
+        - `type`: "SERVICE_TASK"
+        - `configuration`: { "configType": "EMAIL_CONFIG", "templateId": "...", "subject": "..." }
 
-        ### 4. Inference Strategy
-        - If request is minimal (e.g., "Expense"), generate a standard complete workflow (Draft -> Manager -> Finance -> End).
+        #### Case C: Branching Logic (The ONLY place for multi-path)
+        - `type`: "EXCLUSIVE_GATEWAY"
+        - `configuration`: {
+            "configType": "GATEWAY_CONFIG",
+            "defaultNextActivityId": "node_end", // The 'Else' path
+            "conditions": [
+                { "expression": "status == 'REJECTED'", "targetActivityId": "node_revise_req" },
+                { "expression": "status == 'APPROVED'", "targetActivityId": "node_notify_hr" }
+            ]
+          }
+          
+        ### 3. ID & Flow Standards
+        - `id`: **snake_case**.
+        - `nextActivityId`: The default forward path.
+
+        ### 4. Output Example
+        [
+          { "id": "task_approve", "type": "USER_TASK", "nextActivityId": "gw_check_status" ... },
+          { "id": "gw_check_status", "type": "EXCLUSIVE_GATEWAY", "configuration": { ...conditions... } }
+        ]
     """)
     ProcessResponse designProcess(String userRequest);
 }

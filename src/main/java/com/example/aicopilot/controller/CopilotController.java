@@ -1,16 +1,18 @@
 package com.example.aicopilot.controller;
 
+import com.example.aicopilot.agent.SuggestionAgent;
 import com.example.aicopilot.dto.JobStatus;
+import com.example.aicopilot.dto.suggestion.SuggestionResponse;
 import com.example.aicopilot.service.JobRepository;
 import com.example.aicopilot.service.WorkflowOrchestrator;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.CacheControl; // 추가
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit; // 추가
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/copilot")
@@ -19,34 +21,26 @@ public class CopilotController {
 
     private final WorkflowOrchestrator orchestrator;
     private final JobRepository jobRepository;
+    private final SuggestionAgent suggestionAgent; // [NEW] 제안 에이전트 주입
 
     /**
      * 1. 작업 시작 (비동기)
-     * - 클라이언트는 이 API를 호출하고 jobId를 즉시 받습니다.
      */
     @PostMapping("/start")
     public ResponseEntity<?> startJob(@RequestBody Map<String, String> request) {
         String prompt = request.get("userPrompt");
-
-        // [Step 1] Job ID 생성
         String jobId = UUID.randomUUID().toString();
-
-        // [Step 2] 저장소 초기화 (동기) - Polling 시 404 방지
         jobRepository.initJob(jobId);
-
-        // [Step 3] 비동기 작업 실행 (Fire-and-Forget)
         orchestrator.runAsyncJob(jobId, prompt);
 
-        // [Step 4] 즉시 응답 (0.1초 소요)
         return ResponseEntity.accepted().body(Map.of(
                 "jobId", jobId,
-                "message", "작업이 백그라운드에서 시작되었습니다. 상태를 조회하세요."
+                "message", "작업이 백그라운드에서 시작되었습니다."
         ));
     }
 
     /**
      * 2. 상태 조회 (Polling)
-     * - 클라이언트는 1초 간격으로 이 API를 호출하여 진행 상황을 확인합니다.
      */
     @GetMapping("/status/{jobId}")
     public ResponseEntity<?> getStatus(@PathVariable String jobId) {
@@ -54,13 +48,34 @@ public class CopilotController {
         if (status == null) {
             return ResponseEntity.notFound().build();
         }
-
-        // ETag 생성 (버전 기반)
         String etag = "\"" + status.version() + "\"";
-
         return ResponseEntity.ok()
-                .eTag(etag) // ETag 헤더 설정
-                .cacheControl(CacheControl.maxAge(0, TimeUnit.SECONDS).cachePrivate().mustRevalidate()) // 캐시 정책
+                .eTag(etag)
+                .cacheControl(CacheControl.maxAge(0, TimeUnit.SECONDS).cachePrivate().mustRevalidate())
                 .body(status);
+    }
+
+    /**
+     * 3. [NEW] 실시간 AI 제안 요청 (On-Demand)
+     * 사용자가 그래프 작성 중 특정 노드에서 "다음 단계 추천"을 요청할 때 사용합니다.
+     *
+     * Request Body:
+     * {
+     * "currentGraphJson": "{ ... }", // 현재 프론트엔드에 그려진 그래프 전체 (JSON String)
+     * "focusNodeId": "node_submit_expense" // 기준이 되는 노드 ID
+     * }
+     */
+    @PostMapping("/suggest")
+    public ResponseEntity<SuggestionResponse> suggestNextSteps(@RequestBody Map<String, String> request) {
+        String currentGraphJson = request.get("currentGraphJson");
+        String focusNodeId = request.get("focusNodeId");
+
+        // 프롬프트 구성
+        String prompt = "Analyze the provided graph and suggest the next logical steps after node: " + focusNodeId;
+
+        // AI 에이전트 호출 (동기 방식 - 사용자가 기다림)
+        SuggestionResponse response = suggestionAgent.suggestNextSteps(prompt, currentGraphJson, focusNodeId);
+
+        return ResponseEntity.ok(response);
     }
 }

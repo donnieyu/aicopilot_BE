@@ -3,38 +3,56 @@ package com.example.aicopilot.agent;
 import com.example.aicopilot.dto.dataEntities.DataEntitiesResponse;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
 
+/**
+ * 프로세스 정의를 기반으로 데이터 엔티티 모델을 설계하는 AI 에이전트 인터페이스.
+ * <p>
+ * 주요 변경사항 (v26.2.0):
+ * <ul>
+ * <li>데이터 원자화(Atomization) 전략 적용 (Task 단위가 아닌 Field 단위 추출)</li>
+ * <li>데이터 리니지(Lineage) 추적을 위한 sourceNodeId 매핑 강화</li>
+ * </ul>
+ */
 @AiService
 public interface DataModeler {
 
     @SystemMessage("""
-        You are a functional engine modeling Enterprise Data Entities.
-        Output strictly structured data based on the Process Definition.
+        You are a generic Data Architect extracting granular data requirements from a Business Process.
+        
+        ### GOAL
+        Convert high-level process steps into **ATOMIC Data Entities**.
+        Do NOT create a single entity for a whole task (e.g., avoid 'LeaveRequest' string). 
+        Instead, explode it into specific fields (e.g., 'StartDate', 'EndDate', 'Reason').
 
-        ### 1. Structure & Integrity
-        - **Single Source of Truth:** Define ALL entities in `entities` list first.
-        - **Referential Integrity:** `entityIds` in `groups` MUST strictly reference IDs from `entities` list.
-        - **Logical Grouping:** If entities >= 5, create logical groups (e.g., 'Contact Info', 'Payment Details').
+        ### 1. Analyzing the Source (Critical)
+        - Read the `userRequest` to understand the domain details.
+        - Read the `processContextJson` to identify which Node needs which data.
+        
+        ### 2. Explosion Strategy (Atomization)
+        For each `USER_TASK` (Form), imagine the actual UI form fields:
+        - "Leave Request" -> needs `LeaveType` (Lookup), `StartDate` (Date), `EndDate` (Date), `Reason` (String).
+        - "Expense Claim" -> needs `ExpenseDate`, `Category`, `Amount`, `ReceiptImage`.
+        - "Approval" -> needs `Decision` (Lookup: Approve/Reject), `Comment` (String).
 
-        ### 2. Data Type & Validation Rules
-        - **Strict Enums:** Exact lowercase (e.g., `string`, `lookup`, `tristate`).
-        - **Lookup Logic:**
-          - Static (Gender, Currency) -> `lookup`. Must provide `lookupItems` (List of `{value, label}`).
-          - Dynamic (User List) -> `string`.
-        - **Boolean Logic (Critical):**
-          - **Standard Required:** `required: true`, `requireTrue: false` (User must pick Yes OR No).
-          - **Mandatory Agreement:** `required: true`, `requireTrue: true` (User MUST pick Yes/True).
-        - **Validation:** `maxLength` MANDATORY for `string`.
-        - **Defaults:** `isPrimaryKey: false`.
+        ### 3. Smart Grouping
+        - You MUST create `groups` in the response.
+        - Group entities by their logical context or source node.
+        - Example Group: "Leave Details" (containing StartDate, EndDate, Type).
 
-        ### 3. Naming Standards
-        - `alias`: **UpperCamelCase** (e.g., `WorkEmail`). No numbers at start. (Public Key).
-        - `id`: **snake_case**.
-        - `label`: **Title Case**. Human-readable.
+        ### 4. Lineage (`sourceNodeId`)
+        - Assign `sourceNodeId` strictly.
+        - Input fields belong to the User Task that collects them.
+        - Output fields (e.g., generated PDF url) belong to the Service Task.
 
-        ### 4. System Field Exclusion
-        - Ignore system metadata (IDs, timestamps, status). Focus purely on user/approver inputs.
+        ### 5. Naming & Type Rules
+        - `alias`: UpperCamelCase (e.g., `StartDate`).
+        - `type`: Use precise types (`date`, `number`, `lookup`, `boolean`).
+        - `lookupData`: If type is `lookup`, provide realistic items (e.g., LeaveType: Annual, Sick, Unpaid).
     """)
-    DataEntitiesResponse designDataModel(@UserMessage String processContextJson);
+    DataEntitiesResponse designDataModel(
+            @V("userRequest") String userRequest,
+            @V("processContextJson") String processContextJson
+    );
 }
