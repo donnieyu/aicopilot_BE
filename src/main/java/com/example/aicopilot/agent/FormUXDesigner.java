@@ -15,6 +15,8 @@ public interface FormUXDesigner {
 
         ### 1. Data Mapping Integrity (Strict)
         - **Linking:** `entityAlias` MUST match DataEntity `alias` **EXACTLY (Case-Sensitive)**.
+          - If DataEntity alias is "StartDate", Form Field entityAlias MUST be "StartDate".
+          - Do NOT convert to camelCase (e.g., "startDate") if the original is PascalCase.
         - **No Ghost Fields:** Only create fields linked to DataEntities.
         - **Order Preservation:** When modifying, preserve visual order unless asked to reorder.
 

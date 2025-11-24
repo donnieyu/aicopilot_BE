@@ -51,6 +51,17 @@ public interface DataModeler {
         - `type`: Use precise types (`date`, `number`, `lookup`, `boolean`).
         - `lookupData`: If type is `lookup`, provide realistic items (e.g., LeaveType: Annual, Sick, Unpaid).
     """)
+    // [FIX] @V 변수들을 조합할 UserMessage 템플릿 정의
+    @UserMessage("""
+        Here is the user request and the designed process structure.
+        Analyze them to extract atomic data entities.
+
+        [User Request]
+        {{userRequest}}
+
+        [Process Context (JSON)]
+        {{processContextJson}}
+        """)
     DataEntitiesResponse designDataModel(
             @V("userRequest") String userRequest,
             @V("processContextJson") String processContextJson

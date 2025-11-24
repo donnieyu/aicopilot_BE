@@ -6,9 +6,14 @@ import com.example.aicopilot.dto.form.FormResponse;
 import com.example.aicopilot.dto.process.ProcessResponse;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 작업 상태 및 산출물을 관리하는 인메모리 저장소.
+ * 단계별 소요 시간 및 진행 상태를 추적합니다.
+ */
 @Component
 public class JobRepository {
     private final Map<String, JobStatus> store = new ConcurrentHashMap<>();
@@ -18,7 +23,17 @@ public class JobRepository {
     }
 
     public JobStatus findById(String jobId) {
-        return store.get(jobId);
+        JobStatus status = store.get(jobId);
+        if (status != null && status.state() == JobStatus.State.PROCESSING) {
+            // 조회 시점의 실시간 경과 시간 계산 (사용자에게 흐르는 시간 표시용)
+            long currentElapsed = System.currentTimeMillis() - status.startTime();
+            return new JobStatus(
+                    status.jobId(), status.state(), status.message(), status.lastUpdatedStage(),
+                    status.version(), status.startTime(), status.stageDurations(), currentElapsed,
+                    status.processResponse(), status.dataEntitiesResponse(), status.formResponse()
+            );
+        }
+        return status;
     }
 
     public void initJob(String jobId) {
@@ -26,50 +41,56 @@ public class JobRepository {
     }
 
     public void updateState(String jobId, JobStatus.State state, String message) {
-        JobStatus current = findById(jobId);
+        JobStatus current = store.get(jobId);
         if (current != null) {
+            long elapsed = System.currentTimeMillis() - current.startTime();
             save(new JobStatus(
                     jobId, state, message,
-                    current.lastUpdatedStage(), // 단계 유지
-                    current.version() + 1,      // 버전 증가 (메시지만 바뀐 것도 변경임)
+                    current.lastUpdatedStage(),
+                    current.version() + 1,
+                    current.startTime(),
+                    current.stageDurations(),
+                    elapsed,
                     current.processResponse(), current.dataEntitiesResponse(), current.formResponse()
             ));
         }
     }
 
-    public void saveArtifact(String jobId, String type, ProcessResponse processResponse) {
-        JobStatus current = findById(jobId);
-        if (current != null) {
-            save(new JobStatus(
-                    jobId, JobStatus.State.PROCESSING, current.message(),
-                    "PROCESS",            // ★ 단계 명시
-                    current.version() + 1, // ★ 버전 증가
-                    processResponse, current.dataEntitiesResponse(), current.formResponse()
-            ));
-        }
+    // 아티팩트 저장 및 소요 시간 기록 메서드들
+    public void saveArtifact(String jobId, String type, ProcessResponse processResponse, long durationMillis) {
+        updateArtifactWithDuration(jobId, type, processResponse, null, null, durationMillis);
     }
 
-    // DataEntitiesResponse, FormResponse 저장 메서드도 동일하게 수정 (type 파라미터를 lastUpdatedStage로 활용)
-    public void saveArtifact(String jobId, String type, DataEntitiesResponse dataEntitiesResponse) {
-        JobStatus current = findById(jobId);
-        if (current != null) {
-            save(new JobStatus(
-                    jobId, JobStatus.State.PROCESSING, current.message(),
-                    "DATA",                // ★ 단계 명시
-                    current.version() + 1, // ★ 버전 증가
-                    current.processResponse(), dataEntitiesResponse, current.formResponse()
-            ));
-        }
+    public void saveArtifact(String jobId, String type, DataEntitiesResponse dataEntitiesResponse, long durationMillis) {
+        updateArtifactWithDuration(jobId, type, null, dataEntitiesResponse, null, durationMillis);
     }
 
-    public void saveArtifact(String jobId, String type, FormResponse formResponse) {
-        JobStatus current = findById(jobId);
+    public void saveArtifact(String jobId, String type, FormResponse formResponse, long durationMillis) {
+        updateArtifactWithDuration(jobId, type, null, null, formResponse, durationMillis);
+    }
+
+    private void updateArtifactWithDuration(String jobId, String stageName,
+                                            ProcessResponse proc, DataEntitiesResponse data, FormResponse form,
+                                            long durationMillis) {
+        JobStatus current = store.get(jobId);
         if (current != null) {
+            Map<String, Long> newDurations = new HashMap<>(current.stageDurations());
+            newDurations.put(stageName, durationMillis);
+
+            long elapsed = System.currentTimeMillis() - current.startTime();
+
+            ProcessResponse p = proc != null ? proc : current.processResponse();
+            DataEntitiesResponse d = data != null ? data : current.dataEntitiesResponse();
+            FormResponse f = form != null ? form : current.formResponse();
+
             save(new JobStatus(
                     jobId, JobStatus.State.PROCESSING, current.message(),
-                    "FORM",                // ★ 단계 명시
-                    current.version() + 1, // ★ 버전 증가
-                    current.processResponse(), current.dataEntitiesResponse(), formResponse
+                    stageName, // 마지막 업데이트 단계 갱신
+                    current.version() + 1,
+                    current.startTime(),
+                    newDurations,
+                    elapsed,
+                    p, d, f
             ));
         }
     }
