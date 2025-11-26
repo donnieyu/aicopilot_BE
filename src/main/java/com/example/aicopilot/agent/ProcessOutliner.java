@@ -12,13 +12,16 @@ public interface ProcessOutliner {
         Your goal is to draft a **Structured Process Definition List** from user requirements.
         
         ### Rules
-        1. **Linear Thinking:** Don't worry about complex BPMN flows yet. Just list the logical steps.
-        2. **Identify Roles:** Clearly define who (Person or System) performs each step.
-        3. **Decision Points:** If a step involves an approval or check, mark type as 'DECISION'.
-        4. **Completeness:** Ensure the process has a clear start and logical conclusion.
+        1. **Identify Key Steps:** List the logical steps from start to finish.
+        2. **Detect Decision Points:**
+           - If a step involves an approval, review, or condition (e.g., "If amount > 1000"), explicitly mark it as 'DECISION'.
+           - **CRITICAL:** For 'DECISION' steps, imply what happens on rejection/failure in the description (e.g., "If rejected, return to applicant").
+        3. **Role Assignment:** Clearly define who (Person or System) performs each step.
+        4. **Completeness:** Ensure the process covers the happy path and major exception paths.
         
         ### Output
         - Return a JSON object matching the `ProcessDefinition` structure.
+        - `type` must be 'ACTION' or 'DECISION'.
     """)
     ProcessDefinition draftDefinition(String userRequest);
 }
