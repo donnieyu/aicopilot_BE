@@ -1,5 +1,6 @@
 package com.example.aicopilot.dto.process.config;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.List;
@@ -7,6 +8,7 @@ import java.util.List;
 /**
  * Unified Configuration Record supporting Smart Binding Protocol.
  */
+@JsonIgnoreProperties(ignoreUnknown = true) // [필수] 정의되지 않은 필드 무시
 public record NodeConfiguration(
         @JsonProperty("configType")
         @JsonPropertyDescription("Discriminator: 'USER_TASK_CONFIG', 'EMAIL_CONFIG', 'GATEWAY_CONFIG'")
@@ -49,6 +51,7 @@ public record NodeConfiguration(
         @JsonProperty("conditions")
         List<BranchCondition> conditions
 ) {
+        @JsonIgnoreProperties(ignoreUnknown = true) // [필수] 내부 레코드에도 적용
         public record BranchCondition(
                 @JsonProperty("expression")
                 @JsonPropertyDescription("JavaScript-like expression using variables (e.g., `{{ node.amount }} > 1000`).")

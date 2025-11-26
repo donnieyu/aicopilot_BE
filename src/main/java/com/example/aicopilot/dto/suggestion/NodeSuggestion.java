@@ -2,6 +2,7 @@ package com.example.aicopilot.dto.suggestion;
 
 import com.example.aicopilot.dto.process.NodeType;
 import com.example.aicopilot.dto.process.config.NodeConfiguration;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
@@ -9,7 +10,9 @@ import java.util.Map;
 
 /**
  * Represents a smart suggestion with strongly-typed configuration and Data Binding.
+ * [Fix] @JsonIgnoreProperties(ignoreUnknown = true) 추가
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record NodeSuggestion(
         @JsonProperty("title")
         @JsonPropertyDescription("Short title of the suggestion (e.g., 'Add Manager Approval').")
