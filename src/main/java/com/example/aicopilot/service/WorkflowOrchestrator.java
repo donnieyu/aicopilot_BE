@@ -20,17 +20,15 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class WorkflowOrchestrator {
 
-    private final ProcessOutliner processOutliner;  // [NEW] 1단계: 리스트 작성가
-    private final ProcessArchitect processArchitect; // [NEW] 2단계: 맵 변환가
-
-    private final ProcessValidator processValidator; // [Safety] 검증기
+    private final ProcessOutliner processOutliner;
+    private final ProcessArchitect processArchitect;
+    private final ProcessValidator processValidator;
     private final JobRepository jobRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
     /**
      * Mode A: Quick Start (Natural Language -> List -> Map)
-     * 사용자의 문장을 받아 정의서를 만들고, 이를 맵으로 변환합니다.
      */
     @Async
     public void runQuickStartJob(String jobId, String userRequest) {
@@ -40,7 +38,7 @@ public class WorkflowOrchestrator {
             ProcessDefinition definition = processOutliner.draftDefinition(userRequest);
             String definitionJson = objectMapper.writeValueAsString(definition);
 
-            // Step 2: Transformation with Retry
+            // Step 2: Transformation
             transformAndFinalize(jobId, userRequest, definitionJson);
 
         } catch (Exception e) {
@@ -50,12 +48,10 @@ public class WorkflowOrchestrator {
 
     /**
      * Mode B: Transformation (List -> Map)
-     * 프론트엔드에서 완성된 정의서(JSON)를 받아 맵으로 변환합니다.
      */
     @Async
     public void runTransformationJob(String jobId, String definitionJson) {
         try {
-            // Mode B는 바로 2단계 진입
             String userRequest = "Manual Definition Transformation";
             transformAndFinalize(jobId, userRequest, definitionJson);
 
@@ -64,7 +60,7 @@ public class WorkflowOrchestrator {
         }
     }
 
-    // 공통 변환 및 검증 로직 (Self-Correction Loop)
+    // 공통 변환 및 검증 로직
     private void transformAndFinalize(String jobId, String userRequest, String definitionJson) throws Exception {
         jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "2단계: 리스트를 분석하여 BPMN 프로세스 맵으로 변환(Transformation) 중...");
 
@@ -85,20 +81,23 @@ public class WorkflowOrchestrator {
                     process = processArchitect.fixMap(definitionJson, invalidMapJson, lastError);
                 }
 
-                processValidator.validate(process); // 검증
-                break; // 성공 시 탈출
+                processValidator.validate(process);
+                break;
 
             } catch (IllegalArgumentException e) {
                 lastError = e.getMessage();
-                System.err.printf("[Job %s] Transformation Error (Attempt %d): %s%n", jobId, attempt, lastError);
                 if (attempt == maxRetries) throw new RuntimeException("프로세스 맵 변환 실패: " + lastError);
             }
         }
 
         long duration = System.currentTimeMillis() - startTransform;
-        jobRepository.saveArtifact(jobId, "PROCESS", process, duration);
 
-        // 후속 작업(데이터, 폼) 위임
+        // [핵심 변경] 프로세스 생성 완료 시점에 즉시 아티팩트를 저장하고 상태를 업데이트합니다.
+        // 프론트엔드는 이 시점에 Polling으로 프로세스 맵을 렌더링할 수 있습니다.
+        jobRepository.saveArtifact(jobId, "PROCESS", process, duration);
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "프로세스 생성 완료! 데이터 모델링을 시작합니다..."); // 사용자에게 피드백 제공
+
+        // 후속 작업(데이터, 폼)은 이벤트 발행을 통해 비동기로 계속 진행
         eventPublisher.publishEvent(new ProcessGeneratedEvent(this, jobId, userRequest, process));
     }
 

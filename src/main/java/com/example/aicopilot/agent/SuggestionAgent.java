@@ -43,7 +43,7 @@ public interface SuggestionAgent {
         - Generate ONLY the raw JSON. No markdown formatting.
     """)
     @UserMessage("""
-        Analyze this graph and suggest next steps.
+        Analyze the provided graph and suggest next steps.
         
         [Prompt]
         {{prompt}}
