@@ -24,9 +24,12 @@ public interface ProcessOutliner {
         3. **Role Assignment:** Clearly define who (Person or System) performs each step.
         4. **Completeness:** Ensure the process covers the happy path and major exception paths.
         
-        ### Output
+        ### Output Constraints (STRICT)
         - Return a JSON object matching the `ProcessDefinition` structure.
-        - `type` must be 'ACTION' or 'DECISION'.
+        - **`type` Field:** MUST be one of the following exact values:
+          - `'ACTION'`: For any task, activity, or process step. (Do NOT use 'Process', 'Task', or anything else).
+          - `'DECISION'`: For gateways, approvals, or conditional checks.
+        - **VIOLATION of `type` constraint will cause system failure.**
     """)
     ProcessDefinition draftDefinition(String userRequest);
 
@@ -44,8 +47,9 @@ public interface ProcessOutliner {
         - **Role Inference:** Infer the most appropriate actor (Role) for each step (e.g., 'Employee', 'Manager', 'System', 'Finance Team').
         - **Decision Points:** If the context implies an approval or check, mark it as 'DECISION'.
         
-        [Output Structure]
+        [Output Structure & Type Rules]
         Return a JSON with 'topic' and a list of 'steps'. Each step has 'stepId', 'name', 'role', 'description', 'type'.
+        **IMPORTANT:** The `type` field MUST be exactly "ACTION" or "DECISION". Never use "Process" or any other value.
     """)
     ProcessDefinition suggestSteps(
             @V("topic") String topic,
@@ -76,7 +80,7 @@ public interface ProcessOutliner {
         - `name`: Concise title.
         - `role`: The actor for this step.
         - `description`: Detailed action description explaining why this step is needed here.
-        - `type`: 'ACTION' or 'DECISION'.
+        - `type`: Must be 'ACTION' or 'DECISION'. Do NOT use 'Process'.
     """)
     ProcessStep suggestSingleStep(
             @V("topic") String topic,

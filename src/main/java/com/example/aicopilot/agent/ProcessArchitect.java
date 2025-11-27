@@ -43,36 +43,43 @@ public interface ProcessArchitect {
            - Forward Path (Approve/Yes): Connects to the next logical step.
            - Backward Path (Reject/No): Connects to a **Negative Task** (e.g., 'Reject Notification').
            
-        2. **The Negative Task (CRITICAL FIX):**
+        2. **The Negative Task (LOOP BACK PREFERRED):**
            - If you created a task for rejection (e.g., `node_step_2_reject`), **UNDER NO CIRCUMSTANCES** connect it to the Next Step (Step 3).
-           - **MANDATORY ACTION:** You MUST link this negative task to:
-             - Option A (Loop Back): The Initiator's Step (e.g., `node_step_1...`) for re-work. (Preferred for corrections)
-             - Option B (Termination): The End Event (`node_end`) if the process stops there.
-           - **Violation of this rule will be considered a critical failure.**
+           - **MANDATORY ACTION:** Unless the process explicitly says "Terminate on Reject", you MUST link this negative task back to **The Initiator's Step (e.g., `node_step_1...`)** for correction/resubmission.
+           - **Why?** In most business processes, rejection implies a request for changes, not immediate termination.
 
-        ### 3. Transformation Rules
+        ### 3. Transformation Rules (Implicit Start/End)
         
-        1. **Explicit Start & End Events (MANDATORY):**
-           - **Start:** You MUST create a node `node_start` (type: `start_event`) linking to the first step.
-           - **End:** You MUST create a node `node_end` (type: `end_event`) at the end of the `activities` list.
-             - **Constraint:** `nextActivityId` MUST be `null`.
-             - **Constraint:** `configType` MUST be `end_event`.
-             - **Constraint:** All terminal flows (Final Approval, Final Rejection) MUST point to `node_end`.
+        1. **NO Explicit Start/End Nodes:**
+           - **Do NOT** create nodes with type `START_EVENT` or `END_EVENT`. The frontend handles visualization.
+           - Just focus on the business activities.
 
-        2. **Swimlane Allocation:**
+        2. **Connecting to End:**
+           - For the **Final Step** of the process, set `nextActivityId` to `"node_end"`.
+           - Only if the rejection is final and irrevocable, set the target to `"node_end"`.
+           - `"node_end"` is a reserved virtual ID.
+
+        3. **Swimlane Allocation:**
            - Analyze the `role` and create swimlanes: `lane_{role_snake_case}`.
 
-        3. **Node Conversion:**
-           - `ACTION` step -> `user_task` or `service_task`.
+        4. **Node Conversion:**
+           - `ACTION` or `Process` step -> `user_task` or `service_task`.
            - `DECISION` step -> Decompose into `user_task` (Review) + `exclusive_gateway`.
+
+        5. **Gateway Logic (CRITICAL):**
+           - For `exclusive_gateway` nodes, you MUST define explicit `conditions` for ALL outcomes (e.g., 'Approve', 'Reject').
+           - **MANDATORY:** When conditions cover all paths, set `nextActivityId` to `null`.
+           - **Reason:** Setting `nextActivityId` creates a default (unlabeled) edge. If you also have a condition for "Approve", it creates DUPLICATE edges, causing validation errors.
+           - Use clear labels for expressions: "Approve", "Reject", "Yes", "No".
 
         ### Input Data
         Process Definition List (JSON)
     """)
     @UserMessage("""
         Transform this definition into a Process Map.
-        **REMEMBER:** 1. Strict "Anti-Linear" rule: Rejections must NOT go to the next step.
-        2. Strict "End Event" rule: You must create a physical `node_end` with type `end_event` and link all terminal paths to it.
+        **REMEMBER:** 1. **Rejection Logic:** If a proposal is rejected, the Employee usually needs to modify and resubmit it. Link the 'Reject Notification' back to the 'Submit Proposal' step (node_1...).
+        2. **Implicit End:** Do not create a node object for End. Just point `nextActivityId` to `"node_end"` where the flow should stop.
+        3. **Gateway Config:** For gateways, set `nextActivityId` to `null` and define all paths in `conditions`.
 
         [Process Definition List]
         {{definitionJson}}
@@ -87,9 +94,9 @@ public interface ProcessArchitect {
         {{errorMessage}}
         
         ### Instruction for FIX
-        1. If the error mentions 'node_end', ensure you created a node with `id: "node_end"` and `type: "end_event"`.
-        2. Identify the broken link. Replace it with a valid ID that **ACTUALLY EXISTS**.
-        3. If correcting a logic error (e.g., Reject -> Payment), redirect the link to a previous node or `node_end`.
+        1. If the error is about missing 'node_end' reference, ensure terminal nodes point to `"node_end"`.
+        2. Do NOT create a physical node with id `"node_end"`.
+        3. Identify the broken link. Replace it with a valid ID that **ACTUALLY EXISTS**.
         
         ### Original Definition
         {{definitionJson}}

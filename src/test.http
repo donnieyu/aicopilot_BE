@@ -27,27 +27,34 @@ POST http://localhost:8080/api/copilot/transform
 Content-Type: application/json
 
 {
-  "topic": "법인 카드 발급 요청",
+  "topic": "Human Resources",
   "steps": [
     {
-      "stepId": "step_1",
-      "name": "발급 신청서 작성",
-      "role": "직원",
-      "description": "카드 한도 및 사유 입력",
+      "stepId": "1",
+      "name": "Submit Request",
+      "role": "Employee",
+      "description": "The employee submits a request for leave, reimbursement, or any other HR-related matter through the designated HR system or form.",
       "type": "ACTION"
     },
     {
-      "stepId": "step_2",
-      "name": "팀장 승인",
-      "role": "팀장",
-      "description": "신청 사유 검토 및 승인 여부 결정",
+      "stepId": "2",
+      "name": "Review Request",
+      "role": "HR Manager",
+      "description": "The HR manager reviews the submitted request for completeness and compliance with company policies.",
+      "type": "ACTION"
+    },
+    {
+      "stepId": "3",
+      "name": "Decision on Request",
+      "role": "HR Manager",
+      "description": "The HR manager decides whether to approve or reject the request based on the review.",
       "type": "DECISION"
     },
     {
-      "stepId": "step_3",
-      "name": "재무팀 발급 처리",
-      "role": "재무팀",
-      "description": "카드사 신청 및 수령 등록",
+      "stepId": "4",
+      "name": "Notify Employee",
+      "role": "HR Manager",
+      "description": "The HR manager communicates the decision to the employee, providing details on the approval or reasons for rejection.",
       "type": "ACTION"
     }
   ]
@@ -72,4 +79,55 @@ Content-Type: application/json
 {
   "focusNodeId": "node_review_resume",
   "currentGraphJson": "{ \"nodes\": [ { \"id\": \"node_review_resume\", \"type\": \"USER_TASK\", \"label\": \"Resume Review\", \"data\": { \"outputVariables\": [\"resume_score\", \"candidate_email\"] } } ] }"
+}
+
+### [Shadow Architect] 백그라운드 분석 요청 (POST /analyze)
+# 시나리오: 사용자가 '휴가 승인' 노드를 만들었지만, 승인 경로만 연결하고 반려 경로를 연결하지 않음.
+# 기대 결과: AI가 "반려 경로가 누락되었습니다"라는 ERROR 또는 WARNING을 반환해야 함.
+POST http://localhost:8080/api/copilot/analyze
+Content-Type: application/json
+
+{
+  "nodes": [
+    {
+      "id": "node_start",
+      "type": "START",
+      "label": "Start"
+    },
+    {
+      "id": "node_submit",
+      "type": "USER_TASK",
+      "label": "휴가 신청서 작성",
+      "data": { "nextActivityId": "node_approve" }
+    },
+    {
+      "id": "node_approve",
+      "type": "USER_TASK",
+      "label": "팀장 승인",
+      "data": {
+        "configuration": { "isApproval": true }
+      }
+    },
+    {
+      "id": "node_end",
+      "type": "END",
+      "label": "End"
+    }
+  ],
+  "edges": [
+    { "source": "node_start", "target": "node_submit" },
+    { "source": "node_submit", "target": "node_approve" },
+    { "source": "node_approve", "target": "node_end", "label": "Approved" }
+  ]
+}
+
+### [Shadow Architect] 구조 분석 요청 (Analyze API Test)
+POST http://localhost:8080/api/copilot/analyze
+Content-Type: application/json
+
+{
+  "nodes": [
+    { "id": "node_1", "type": "USER_TASK", "label": "Task 1" }
+  ],
+  "edges": []
 }

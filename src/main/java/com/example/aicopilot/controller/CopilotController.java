@@ -1,8 +1,11 @@
 package com.example.aicopilot.controller;
 
+import com.example.aicopilot.agent.FlowAnalyst;
 import com.example.aicopilot.agent.ProcessOutliner;
 import com.example.aicopilot.agent.SuggestionAgent;
 import com.example.aicopilot.dto.JobStatus;
+import com.example.aicopilot.dto.analysis.AnalysisReport;
+import com.example.aicopilot.dto.analysis.AnalysisResult;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.example.aicopilot.dto.definition.ProcessStep;
 import com.example.aicopilot.dto.suggestion.SuggestionResponse;
@@ -30,6 +33,7 @@ public class CopilotController {
     private final JobRepository jobRepository;
     private final SuggestionAgent suggestionAgent;
     private final ProcessOutliner processOutliner;
+    private final FlowAnalyst flowAnalyst;
     private final DataContextService dataContextService;
     private final ObjectMapper objectMapper;
 
@@ -157,5 +161,42 @@ public class CopilotController {
                 stepSummaries
         );
         return ResponseEntity.ok(suggestedStep);
+    }
+
+    /**
+     * 7. [Shadow Architect] Background Analysis Endpoint
+     * Triggered by frontend when user is idle after edits.
+     */
+    @PostMapping("/analyze")
+    public ResponseEntity<?> analyzeProcess(@RequestBody Map<String, Object> graphSnapshot) {
+        try {
+            // [Debug] Bean Injection Check
+            if (flowAnalyst == null) {
+                throw new IllegalStateException("FlowAnalyst bean is not initialized. Please check @AiService configuration.");
+            }
+
+            // 프론트에서 보낸 가벼운 스냅샷 데이터 추출
+            Object nodesObj = graphSnapshot.get("nodes");
+            Object edgesObj = graphSnapshot.get("edges");
+
+            if (nodesObj == null || edgesObj == null) {
+                throw new IllegalArgumentException("'nodes' or 'edges' data is missing in the request.");
+            }
+
+            String nodesJson = objectMapper.writeValueAsString(nodesObj);
+            String edgesJson = objectMapper.writeValueAsString(edgesObj);
+
+            // [Fix] Return wrapped report object instead of raw List to avoid Type Erasure issues in AI Service
+            AnalysisReport report = flowAnalyst.analyzeGraph(nodesJson, edgesJson);
+
+            // Unwrap results for frontend
+            return ResponseEntity.ok(report.results());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", e.getClass().getSimpleName(),
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown Error"
+            ));
+        }
     }
 }
