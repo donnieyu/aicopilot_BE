@@ -13,10 +13,10 @@ public record JobStatus(
         String lastUpdatedStage,
         long version,
 
-        // [NEW] 시간 측정 필드
-        long startTime, // 시작 시간 (Epoch)
-        Map<String, Long> stageDurations, // 단계별 소요 시간 (ms)
-        long totalElapsedMillis, // 총 경과 시간
+        // Time measurement fields
+        long startTime, // Start time (Epoch)
+        Map<String, Long> stageDurations, // Duration per stage (ms)
+        long totalElapsedMillis, // Total elapsed time
 
         ProcessResponse processResponse,
         DataEntitiesResponse dataEntitiesResponse,
@@ -30,7 +30,7 @@ public record JobStatus(
         return new JobStatus(
                 jobId,
                 State.PENDING,
-                "작업 대기 중...",
+                "Waiting for job...",
                 "INIT",
                 0L,
                 System.currentTimeMillis(),

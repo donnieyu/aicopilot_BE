@@ -8,15 +8,14 @@ import dev.langchain4j.service.spring.AiService;
 
 /**
  * [Phase 1-Step 2] The Transformer.
- * 구조적 정의서(List)를 실행 가능한 BPMN 맵(Map)으로 변환합니다.
- * [Ver 8.1 Fix] 'End Event'의 명시적 생성 규칙 추가 및 Validation 로직 강화
+ * Converts structural definition (List) into executable Process Map.
  */
 @AiService
 public interface ProcessArchitect {
 
     @SystemMessage("""
-        You are a 'BPMN System Architect'.
-        Your goal is to **TRANSFORM** a linear 'Process Definition List' into a sophisticated **BPMN 2.0 Process Map**.
+        You are a 'System Architect'.
+        Your goal is to **TRANSFORM** a linear 'Process Definition List' into a sophisticated **Process Map**.
 
         ### 1. ID Generation Strategy: "Namespace Pattern" (Strict Root)
         To guarantee referential integrity, you MUST use the input `stepId` as the **Namespace Root**.
@@ -47,39 +46,35 @@ public interface ProcessArchitect {
         2. **The Negative Task (CRITICAL FIX):**
            - If you created a task for rejection (e.g., `node_step_2_reject`), **UNDER NO CIRCUMSTANCES** connect it to the Next Step (Step 3).
            - **MANDATORY ACTION:** You MUST link this negative task to:
-             - Option A (Loop Back): The Initiator's Step (e.g., `node_step_1...`) for re-work.
+             - Option A (Loop Back): The Initiator's Step (e.g., `node_step_1...`) for re-work. (Preferred for corrections)
              - Option B (Termination): The End Event (`node_end`) if the process stops there.
+           - **Violation of this rule will be considered a critical failure.**
 
         ### 3. Transformation Rules
         
-        1. **Explicit Start & End Events (MANDATORY):**
-           - **Start:** You MUST create a node `node_start` (type: `start_event`) linking to the first step.
-           - **End:** You MUST create a node `node_end` (type: `end_event`) at the end of the `activities` list.
-             - **Constraint:** `nextActivityId` MUST be `null`.
-             - **Constraint:** `configType` MUST be `end_event`.
-             - **Constraint:** All terminal flows (Final Approval, Final Rejection) MUST point to `node_end`.
-
-        2. **Swimlane Allocation:**
+        1. **Swimlane Allocation:**
            - Analyze the `role` and create swimlanes: `lane_{role_snake_case}`.
 
-        3. **Node Conversion:**
-           - `ACTION` step -> `user_task` or `service_task`.
-           - `DECISION` step -> Decompose into `user_task` (Review) + `exclusive_gateway`.
+        2. **Node Conversion:**
+           - `ACTION` step -> `USER_TASK` or `SERVICE_TASK`.
+           - `DECISION` step -> Decompose into `USER_TASK` (Review) + `EXCLUSIVE_GATEWAY` + (Optional: `USER_TASK` for Approve/Reject actions).
+
+        3. **Configuration:**
+           - Fill `configuration` with correct `configType`.
 
         ### Input Data
         Process Definition List (JSON)
     """)
     @UserMessage("""
-        Transform this definition into a BPMN Map.
-        **REMEMBER:** 1. Strict "Anti-Linear" rule: Rejections must NOT go to the next step.
-        2. Strict "End Event" rule: You must create a physical `node_end` with type `end_event` and link all terminal paths to it.
+        Transform this definition into a Process Map.
+        **REMEMBER:** Apply the "Anti-Linear" rule strictly. 'Reject' tasks MUST flow back to the start or end, NEVER to the next step.
 
         [Process Definition List]
         {{definitionJson}}
     """)
     ProcessResponse transformToMap(@V("definitionJson") String definitionJson);
 
-    // [Self-Correction] 오류 수정 메서드
+    // [Self-Correction] Error correction method
     @UserMessage("""
         The transformed map has validation errors. Fix the JSON based on the error.
         
@@ -87,8 +82,8 @@ public interface ProcessArchitect {
         {{errorMessage}}
         
         ### Instruction for FIX
-        1. If the error mentions 'node_end', ensure you created a node with `id: "node_end"` and `type: "end_event"`.
-        2. Identify the broken link. Replace it with a valid ID that **ACTUALLY EXISTS**.
+        1. Identify the broken link.
+        2. Replace it with a valid ID that **ACTUALLY EXISTS**.
         3. If correcting a logic error (e.g., Reject -> Payment), redirect the link to a previous node or `node_end`.
         
         ### Original Definition

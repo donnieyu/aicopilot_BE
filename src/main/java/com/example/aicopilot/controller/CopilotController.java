@@ -33,7 +33,9 @@ public class CopilotController {
     private final DataContextService dataContextService;
     private final ObjectMapper objectMapper;
 
-    // ... (Existing APIs) ...
+    /**
+     * 1. [Mode A] Quick Start (Natural Language -> List -> Map)
+     */
     @PostMapping("/start")
     public ResponseEntity<?> startJob(@RequestBody Map<String, String> request) {
         String prompt = request.get("userPrompt");
@@ -43,6 +45,10 @@ public class CopilotController {
         return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Mode A Started"));
     }
 
+    /**
+     * 2. [Mode B] Transformation (List JSON -> Map)
+     * Requests map generation based on the 'step list' edited by the frontend.
+     */
     @PostMapping("/transform")
     public ResponseEntity<?> transformJob(@RequestBody ProcessDefinition definition) {
         String jobId = UUID.randomUUID().toString();
@@ -56,6 +62,9 @@ public class CopilotController {
         }
     }
 
+    /**
+     * 3. Status Check (Polling)
+     */
     @GetMapping("/status/{jobId}")
     public ResponseEntity<?> getStatus(@PathVariable String jobId) {
         JobStatus status = jobRepository.findById(jobId);
@@ -67,6 +76,9 @@ public class CopilotController {
                 .body(status);
     }
 
+    /**
+     * 4. Real-time Suggestion (On-Demand) - Graph Context
+     */
     @PostMapping("/suggest/graph")
     public ResponseEntity<SuggestionResponse> suggestNextNode(@RequestBody Map<String, String> request) {
         String currentGraphJson = request.get("currentGraphJson");
@@ -93,11 +105,16 @@ public class CopilotController {
         return ResponseEntity.ok(response);
     }
 
+    // [Legacy Support] Keep existing endpoint if needed
     @PostMapping("/suggest")
     public ResponseEntity<SuggestionResponse> suggestLegacy(@RequestBody Map<String, String> request) {
         return suggestNextNode(request);
     }
 
+    /**
+     * 5. Outline Suggestion (Drafting Phase)
+     * Suggests process steps based on topic and description.
+     */
     @PostMapping("/suggest/outline")
     public ResponseEntity<ProcessDefinition> suggestOutline(@RequestBody Map<String, String> request) {
         String topic = request.get("topic");
@@ -107,14 +124,17 @@ public class CopilotController {
         return ResponseEntity.ok(definition);
     }
 
-    // [Updated] Step Suggestion API using FULL Context (Before & After)
+    /**
+     * 6. Step Detail Suggestion API (Micro-Assistant)
+     * Suggests a single step using FULL Context (Before & After).
+     */
     @PostMapping("/suggest/step")
     public ResponseEntity<ProcessStep> suggestStepDetail(@RequestBody Map<String, Object> request) {
         String topic = (String) request.get("topic");
         String context = (String) request.get("context");
         Integer stepIndex = (Integer) request.get("stepIndex");
 
-        // [Updated] Receive ALL steps, not just previous ones
+        // Receive ALL steps, not just previous ones
         List<Map<String, String>> rawSteps = (List<Map<String, String>>) request.get("currentSteps");
 
         if (topic == null || stepIndex == null) {

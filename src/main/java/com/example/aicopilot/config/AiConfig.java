@@ -18,10 +18,10 @@ public class AiConfig {
     ChatLanguageModel chatLanguageModel() {
         return OpenAiChatModel.builder()
                 .apiKey(apiKey)
-                .modelName("gpt-4o-mini") // 빠르고 저렴한 모델
-                .temperature(0.0) // [최적화] 결정론적 응답 -> 속도 향상
-                .topP(0.9) // [최적화] 토큰 선택 범위 제한
-                .timeout(Duration.ofSeconds(60)) // 충분한 타임아웃
+                .modelName("gpt-4o-mini") // Fast and cost-effective model
+                .temperature(0.0) // [Optimization] Deterministic response -> Speed improvement
+                .topP(0.9) // [Optimization] Limit token selection range
+                .timeout(Duration.ofSeconds(60)) // Sufficient timeout
                 .build();
     }
 }

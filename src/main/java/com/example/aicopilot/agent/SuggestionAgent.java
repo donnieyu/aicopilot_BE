@@ -52,6 +52,6 @@ public interface SuggestionAgent {
     SuggestionResponse suggestNextSteps(
             @V("currentGraphJson") String currentGraphJson,
             @V("focusNodeId") String focusNodeId,
-            @V("availableVariables") String availableVariables // New Parameter
+            @V("availableVariables") String availableVariables
     );
 }

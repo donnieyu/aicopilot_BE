@@ -7,13 +7,7 @@ import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
 
 /**
- * 프로세스 정의를 기반으로 데이터 엔티티 모델을 설계하는 AI 에이전트 인터페이스.
- * <p>
- * 주요 변경사항 (v26.2.0):
- * <ul>
- * <li>데이터 원자화(Atomization) 전략 적용 (Task 단위가 아닌 Field 단위 추출)</li>
- * <li>데이터 리니지(Lineage) 추적을 위한 sourceNodeId 매핑 강화</li>
- * </ul>
+ * AI Agent Interface for designing data entity models based on process definitions.
  */
 @AiService
 public interface DataModeler {
@@ -51,7 +45,6 @@ public interface DataModeler {
         - `type`: Use precise types (`date`, `number`, `lookup`, `boolean`).
         - `lookupData`: If type is `lookup`, provide realistic items (e.g., LeaveType: Annual, Sick, Unpaid).
     """)
-    // [FIX] @V 변수들을 조합할 UserMessage 템플릿 정의
     @UserMessage("""
         Here is the user request and the designed process structure.
         Analyze them to extract atomic data entities.

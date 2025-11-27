@@ -12,7 +12,6 @@ import java.util.List;
 @AiService
 public interface ProcessOutliner {
 
-    // ... (기존 메서드들: draftDefinition, suggestSteps 유지) ...
     @SystemMessage("""
         You are a 'Business Process Analyst'.
         Your goal is to draft a **Structured Process Definition List** from user requirements.
@@ -53,7 +52,6 @@ public interface ProcessOutliner {
             @V("description") String description
     );
 
-    // [Updated] Smart Step Insertion API (Context-Aware)
     @UserMessage("""
         Suggest a **SINGLE** process step to be inserted at the specified index within the current workflow.
         
@@ -84,6 +82,6 @@ public interface ProcessOutliner {
             @V("topic") String topic,
             @V("context") String context,
             @V("stepIndex") int stepIndex,
-            @V("currentSteps") List<String> currentSteps // [Updated] All steps
+            @V("currentSteps") List<String> currentSteps
     );
 }

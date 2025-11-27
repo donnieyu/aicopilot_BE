@@ -13,8 +13,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 /**
- * 워크플로우 오케스트레이터 (Ver 7.1).
- * 2-Step Generation (Outliner -> Transformer) 및 Self-Correction 파이프라인을 관리합니다.
+ * Workflow Orchestrator (Ver 7.1).
+ * Manages the 2-Step Generation (Outliner -> Transformer) and Self-Correction pipeline.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,7 +34,7 @@ public class WorkflowOrchestrator {
     public void runQuickStartJob(String jobId, String userRequest) {
         try {
             // Step 1: Outlining
-            jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "1단계: 요구사항을 분석하여 단계 리스트(Outliner) 작성 중...");
+            jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Step 1: Analyzing requirements and drafting the step list (Outliner)...");
             ProcessDefinition definition = processOutliner.draftDefinition(userRequest);
             String definitionJson = objectMapper.writeValueAsString(definition);
 
@@ -60,9 +60,9 @@ public class WorkflowOrchestrator {
         }
     }
 
-    // 공통 변환 및 검증 로직
+    // Common transformation and validation logic
     private void transformAndFinalize(String jobId, String userRequest, String definitionJson) throws Exception {
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "2단계: 리스트를 분석하여 BPMN 프로세스 맵으로 변환(Transformation) 중...");
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Step 2: Transforming list into Process Map...");
 
         long startTransform = System.currentTimeMillis();
         ProcessResponse process = null;
@@ -75,7 +75,7 @@ public class WorkflowOrchestrator {
                     process = processArchitect.transformToMap(definitionJson);
                 } else {
                     jobRepository.updateState(jobId, JobStatus.State.PROCESSING,
-                            String.format("구조적 오류 자동 수정 중... (시도 %d/%d)", attempt, maxRetries));
+                            String.format("Auto-correcting structural errors... (Attempt %d/%d)", attempt, maxRetries));
 
                     String invalidMapJson = objectMapper.writeValueAsString(process);
                     process = processArchitect.fixMap(definitionJson, invalidMapJson, lastError);
@@ -86,23 +86,23 @@ public class WorkflowOrchestrator {
 
             } catch (IllegalArgumentException e) {
                 lastError = e.getMessage();
-                if (attempt == maxRetries) throw new RuntimeException("프로세스 맵 변환 실패: " + lastError);
+                if (attempt == maxRetries) throw new RuntimeException("Failed to transform Process Map: " + lastError);
             }
         }
 
         long duration = System.currentTimeMillis() - startTransform;
 
-        // [핵심 변경] 프로세스 생성 완료 시점에 즉시 아티팩트를 저장하고 상태를 업데이트합니다.
-        // 프론트엔드는 이 시점에 Polling으로 프로세스 맵을 렌더링할 수 있습니다.
+        // [Key Change] Save artifact immediately upon process generation completion and update state.
+        // Frontend can render the process map via Polling at this point.
         jobRepository.saveArtifact(jobId, "PROCESS", process, duration);
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "프로세스 생성 완료! 데이터 모델링을 시작합니다..."); // 사용자에게 피드백 제공
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Process generation complete! Starting data modeling...");
 
-        // 후속 작업(데이터, 폼)은 이벤트 발행을 통해 비동기로 계속 진행
+        // Subsequent tasks (Data, Form) proceed asynchronously via event publishing
         eventPublisher.publishEvent(new ProcessGeneratedEvent(this, jobId, userRequest, process));
     }
 
     private void handleError(String jobId, Exception e) {
         e.printStackTrace();
-        jobRepository.updateState(jobId, JobStatus.State.FAILED, "작업 중 오류 발생: " + e.getMessage());
+        jobRepository.updateState(jobId, JobStatus.State.FAILED, "Error occurred during operation: " + e.getMessage());
     }
 }

@@ -7,10 +7,8 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.Map;
 
 /**
- * 워크플로우의 개별 노드(Activity) 모델.
- * 다형성(Polymorphism)을 지원하며, 노드의 성격에 따라 설정(Configuration)이 달라집니다.
- * <p>
- * [변경사항]: 'rejectActivityId' 삭제됨 (분기 로직은 EXCLUSIVE_GATEWAY가 전담).
+ * Model for an individual node (Activity) in the workflow.
+ * Supports Polymorphism, where configuration varies based on node type.
  */
 public record Activity(
         @JsonProperty("id")
@@ -52,6 +50,4 @@ public record Activity(
                 - For GATEWAYS: The 'Else' path (if no conditions match).
                 """)
         String nextActivityId
-
-        // [삭제됨] rejectActivityId: 반려/분기 로직은 반드시 EXCLUSIVE_GATEWAY의 conditions를 통해 처리해야 함.
 ) {}
