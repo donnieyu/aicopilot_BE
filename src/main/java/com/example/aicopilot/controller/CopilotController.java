@@ -2,17 +2,19 @@ package com.example.aicopilot.controller;
 
 import com.example.aicopilot.agent.DataModeler;
 import com.example.aicopilot.agent.FlowAnalyst;
-import com.example.aicopilot.agent.FormUXDesigner; // [New] Import
+import com.example.aicopilot.agent.FormUXDesigner;
 import com.example.aicopilot.agent.ProcessOutliner;
 import com.example.aicopilot.agent.SuggestionAgent;
 import com.example.aicopilot.dto.JobStatus;
 import com.example.aicopilot.dto.analysis.AnalysisReport;
 import com.example.aicopilot.dto.analysis.AnalysisResult;
+import com.example.aicopilot.dto.analysis.FixGraphRequest; // [New] Import
+import com.example.aicopilot.dto.analysis.GraphStructure; // [New] Import
 import com.example.aicopilot.dto.dataEntities.DataEntitiesResponse;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.example.aicopilot.dto.definition.ProcessStep;
 import com.example.aicopilot.dto.form.FormDefinitions;
-import com.example.aicopilot.dto.form.FormResponse; // [New] Import
+import com.example.aicopilot.dto.form.FormResponse;
 import com.example.aicopilot.dto.suggestion.AutoDiscoveryRequest;
 import com.example.aicopilot.dto.suggestion.SuggestionResponse;
 import com.example.aicopilot.service.DataContextService;
@@ -41,15 +43,12 @@ public class CopilotController {
     private final ProcessOutliner processOutliner;
     private final FlowAnalyst flowAnalyst;
     private final DataModeler dataModeler;
-    private final FormUXDesigner formUXDesigner; // [New] Injection
+    private final FormUXDesigner formUXDesigner;
     private final DataContextService dataContextService;
     private final ObjectMapper objectMapper;
 
-    // ... (Existing methods: startJob, transformJob, getStatus, suggestNextNode, suggestLegacy, suggestOutline, suggestStepDetail, analyzeProcess, suggestForm)
+    // ... (Existing methods: startJob, transformJob, getStatus, suggestNextNode, suggestLegacy, suggestOutline, suggestStepDetail)
 
-    /**
-     * 1. [Mode A] Quick Start (Natural Language -> List -> Map)
-     */
     @PostMapping("/start")
     public ResponseEntity<?> startJob(@RequestBody Map<String, String> request) {
         String prompt = request.get("userPrompt");
@@ -59,9 +58,6 @@ public class CopilotController {
         return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Mode A Started"));
     }
 
-    /**
-     * 2. [Mode B] Transformation (List JSON -> Map)
-     */
     @PostMapping("/transform")
     public ResponseEntity<?> transformJob(@RequestBody ProcessDefinition definition) {
         String jobId = UUID.randomUUID().toString();
@@ -75,9 +71,6 @@ public class CopilotController {
         }
     }
 
-    /**
-     * 3. Status Check (Polling)
-     */
     @GetMapping("/status/{jobId}")
     public ResponseEntity<?> getStatus(@PathVariable String jobId) {
         JobStatus status = jobRepository.findById(jobId);
@@ -89,9 +82,6 @@ public class CopilotController {
                 .body(status);
     }
 
-    /**
-     * 4. Real-time Suggestion (On-Demand) - Graph Context
-     */
     @PostMapping("/suggest/graph")
     public ResponseEntity<SuggestionResponse> suggestNextNode(@RequestBody Map<String, String> request) {
         String currentGraphJson = request.get("currentGraphJson");
@@ -118,15 +108,11 @@ public class CopilotController {
         return ResponseEntity.ok(response);
     }
 
-    // [Legacy Support]
     @PostMapping("/suggest")
     public ResponseEntity<SuggestionResponse> suggestLegacy(@RequestBody Map<String, String> request) {
         return suggestNextNode(request);
     }
 
-    /**
-     * 5. Outline Suggestion (Drafting Phase)
-     */
     @PostMapping("/suggest/outline")
     public ResponseEntity<ProcessDefinition> suggestOutline(@RequestBody Map<String, String> request) {
         String topic = request.get("topic");
@@ -136,9 +122,6 @@ public class CopilotController {
         return ResponseEntity.ok(definition);
     }
 
-    /**
-     * 6. Step Detail Suggestion API (Micro-Assistant)
-     */
     @PostMapping("/suggest/step")
     public ResponseEntity<ProcessStep> suggestStepDetail(@RequestBody Map<String, Object> request) {
         String topic = (String) request.get("topic");
@@ -167,9 +150,6 @@ public class CopilotController {
         return ResponseEntity.ok(suggestedStep);
     }
 
-    /**
-     * 7. [Shadow Architect] Background Analysis Endpoint
-     */
     @PostMapping("/analyze")
     public ResponseEntity<?> analyzeProcess(@RequestBody Map<String, Object> graphSnapshot) {
         try {
@@ -199,9 +179,28 @@ public class CopilotController {
         }
     }
 
-    /**
-     * 8. Form Suggestion Endpoint (Manual Prompt)
-     */
+    // [New] API Endpoint for Auto-Fix
+    @PostMapping("/analyze/fix")
+    public ResponseEntity<GraphStructure> fixError(@RequestBody FixGraphRequest request) {
+        try {
+            // Serialize graph for AI
+            String graphJson = objectMapper.writeValueAsString(request.graphSnapshot());
+            AnalysisResult error = request.error();
+
+            GraphStructure fixedGraph = flowAnalyst.fixGraph(
+                    graphJson,
+                    error.type(),
+                    error.targetNodeId(),
+                    error.suggestion()
+            );
+
+            return ResponseEntity.ok(fixedGraph);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     @PostMapping("/suggest/form")
     public ResponseEntity<FormDefinitions> suggestForm(@RequestBody Map<String, String> request) {
         String prompt = request.get("prompt");
@@ -212,9 +211,6 @@ public class CopilotController {
         return ResponseEntity.ok(form);
     }
 
-    /**
-     * 9. Data Entity Auto-Discovery
-     */
     @PostMapping("/suggest/data-model/auto-discovery")
     public ResponseEntity<DataEntitiesResponse> suggestMissingEntities(@RequestBody AutoDiscoveryRequest request) {
         try {
@@ -229,14 +225,11 @@ public class CopilotController {
         }
     }
 
-    /**
-     * 10. [New] Form Auto-Discovery Endpoint
-     */
     @PostMapping("/suggest/form/auto-discovery")
     public ResponseEntity<FormResponse> suggestMissingForms(@RequestBody Map<String, Object> request) {
         try {
             Object processContext = request.get("processContext");
-            Object dataContext = request.get("existingEntities"); // Reusing 'existingEntities' from Data store
+            Object dataContext = request.get("existingEntities");
             Object existingForms = request.get("existingForms");
 
             String processJson = objectMapper.writeValueAsString(processContext);
