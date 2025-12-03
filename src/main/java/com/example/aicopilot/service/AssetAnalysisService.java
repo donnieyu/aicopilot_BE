@@ -90,13 +90,12 @@ public class AssetAnalysisService {
             You are an expert **BPMN 2.0 Reverse Engineer** and **Process Architect**.
             Your goal is to digitize a specific Process Map Image into a structured `ProcessDefinition` JSON with 100% fidelity.
 
-            ### 🎯 CRITICAL MISSION: "NO SUMMARIZATION" & "NO REDUNDANT START"
-            - **Do NOT** summarize the process (e.g., don't say "The system checks data").
-            - **DO** extract **EVERY SINGLE NODE** visible in the image as a discrete step.
-            - **EXCEPTION (Crucial):** Do NOT create separate steps for the visual 'Start Event' (Green Circle) or 'End Event' (Red Circle). The system automatically adds these. Only list the actual *Tasks* and *Gateways* between them.
-            - **OCR Accuracy:** Read the **EXACT label text** inside each shape.
+            ### 🎯 MISSION: "Vision to Structured Data with Swimlanes"
+            Extract the business logic from the image into a linear list of steps.
+            **CRITICAL:** You MUST identify **Swimlanes (Lanes)** in the image to determine the correct `role` for each step. This is the primary method for role assignment.
+            Since the output is a linear list, you MUST describe the flow connections (branching, looping) inside the `description` field so the downstream system can reconstruct the graph.
 
-            ### 1. Visual Decoding Rules
+            ### 1. Visual Decoding Rules (Vision Analysis)
             - **Hierarchy Detection (Pool vs Lane):**
               - Ignore the outermost container title (e.g., "Pool 1", "Main Process") if it contains inner subdivisions.
               - Focus on the **Inner Containers (Lanes)** that divide the chart horizontally or vertically.
@@ -119,14 +118,25 @@ public class AssetAnalysisService {
             - **Rejection/Loops:** If an arrow goes BACK to a previous step (especially across Swimlanes), mention this in the `description`.
               - *Example:* "Manager review task. If rejected, the process loops back to the 'Leave Request Application' step in the Employee lane."
 
-            ### 3. [NEW] Confidence & Evidence (Strict Calculation)
-            - **Do NOT use a static value (e.g., 0.95) for all nodes.**
-            - Calculate `confidence` (0.5 - 1.0) based on:
-              1. **Text Clarity:** Is the text blurry? (-0.2)
-              2. **Shape Ambiguity:** Is it clearly a diamond/rect? If hand-drawn or weird shape, lower score (-0.2).
-              3. **Context:** Does the text match the shape? (e.g. 'Approval' in a Diamond is high confidence).
-            - **`reason` Field (Required):** Briefly explain the score.
-              - Examples: "Text is perfectly clear", "Blurry label, inferred from context", "Shape is ambiguous".
+            ### 3. [UPDATED] Confidence Scoring Algorithm (Deduction Method)
+            **Do NOT default to 0.9 or 0.95.** Start with a score of **1.0** and apply deductions based on visual evidence.
+            
+            **[Rules for Deduction]**
+            1. **Text Legibility (-0.1 to -0.3):**
+               - Slightly blurry or small font? **-0.1**
+               - Hard to read, guessed some letters? **-0.2**
+               - Illegible, purely inferred from context? **-0.3**
+            2. **Shape Ambiguity (-0.1 to -0.2):**
+               - Shape boundary is unclear or hand-drawn style? **-0.15**
+               - Ambiguous whether it's a Gateway or Task? **-0.2**
+            3. **Context Mismatch (-0.2):**
+               - Text says "Decision" but shape is a Rectangle? **-0.2**
+               - Text says "Submit" but shape is a Diamond? **-0.2**
+
+            **[Reasoning Requirement]**
+            - The `reason` field MUST explain the calculation.
+            - Example: "Text is slightly blurry (-0.1), but shape is clear." -> Final Score: 0.9
+            - Example: "Text illegible (-0.3) and shape ambiguous (-0.1)." -> Final Score: 0.6
 
             ### 4. Output Data Structure (Strict JSON)
             Return ONLY the raw JSON. No markdown formatting.
@@ -144,9 +154,9 @@ public class AssetAnalysisService {
                     "fileId": "uploaded_asset",
                     "pageIndex": 0,
                     "rects": [{ "x": 10, "y": 20, "w": 15, "h": 10 }],
-                    "confidence": 0.85,
+                    "confidence": 0.95,
                     "snippet": "Leave Request Application",
-                    "reason": "Text clear, inside Employee lane"
+                    "reason": "Text is perfectly clear and sharp."
                   }
                 },
                 {
@@ -159,9 +169,9 @@ public class AssetAnalysisService {
                     "fileId": "uploaded_asset",
                     "pageIndex": 0,
                     "rects": [{ "x": 30, "y": 20, "w": 15, "h": 10 }],
-                    "confidence": 0.9,
-                    "snippet": "Manager Review",
-                    "reason": "Clear text in Manager lane"
+                    "confidence": 0.75,
+                    "snippet": "Mgr Rvw", 
+                    "reason": "Text is abbreviated and slightly blurry (-0.15), context inferred (-0.1)."
                   }
                 }
                 // ... EXTRACT EVERY NODE

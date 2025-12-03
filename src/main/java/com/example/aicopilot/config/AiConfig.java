@@ -21,7 +21,7 @@ public class AiConfig {
                 .modelName("gpt-4o-mini") // Fast and cost-effective model
                 .temperature(0.0) // [Optimization] Deterministic response -> Speed improvement
                 .topP(0.9) // [Optimization] Limit token selection range
-                .timeout(Duration.ofSeconds(60)) // Sufficient timeout
+                .timeout(Duration.ofSeconds(180)) // Sufficient timeout
                 // [Fix] Force JSON output mode to prevent markdown formatting errors
                 .responseFormat("json_object")
                 .build();
