@@ -1,7 +1,7 @@
 package com.example.aicopilot.service;
 
 import com.example.aicopilot.dto.analysis.AssetAnalysisResponse;
-import com.example.aicopilot.dto.definition.ProcessDefinition; // [New] Import
+import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ImageContent;
@@ -84,59 +84,65 @@ public class AssetAnalysisService {
         return null;
     }
 
-    // [Updated] Highly Specialized Prompt for BPMN/Flowchart Image Reverse Engineering with Strict Swimlane Detection
+    // [Updated] Highly Specialized Prompt for BPMN/Flowchart Image Reverse Engineering
+    // Includes detailed instructions for Confidence Calculation & Reasoning.
     private String getBPMNAnalysisPrompt() {
         return """
             You are an expert **BPMN 2.0 Reverse Engineer** and **Process Architect**.
             Your goal is to digitize a specific Process Map Image into a structured `ProcessDefinition` JSON with 100% fidelity.
 
-            ### 🎯 MISSION: "Vision to Structured Data with Swimlanes"
-            Extract the business logic from the image into a linear list of steps.
-            **CRITICAL:** You MUST identify **Swimlanes (Pools/Lanes)** in the image to determine the correct `role` for each step. This is the primary method for role assignment.
-            Since the output is a linear list, you MUST describe the flow connections (branching, looping) inside the `description` field so the downstream system can reconstruct the graph.
+            ### 🎯 CRITICAL MISSION: "NO SUMMARIZATION" & "NO REDUNDANT START"
+            - **Do NOT** summarize the process (e.g., don't say "The system checks data").
+            - **DO** extract **EVERY SINGLE NODE** visible in the image as a discrete step.
+            - **EXCEPTION (Crucial):** Do NOT create separate steps for the visual 'Start Event' (Green Circle) or 'End Event' (Red Circle). The system automatically adds these. Only list the actual *Tasks* and *Gateways* between them.
+            - **OCR Accuracy:** Read the **EXACT label text** inside each shape.
 
-            ### 1. Visual Decoding Rules (Vision Analysis)
-            - **Identify Swimlanes First:** Look for large horizontal or vertical containers (boxes) that divide the entire chart. Read the header text for each container (e.g., "Employee", "Manager", "HR", "Finance"). These headers are the **Roles**.
-            - **Map Steps to Roles:** For every Task or Gateway node, visually identify which Swimlane container it resides in. You MUST use that Swimlane's header text exactly as the `role` for that step.
-            - **Ignore Start/End Nodes:** Do NOT create steps for visual 'Start Event' (Circles) or 'End Event'. Only list the Tasks and Gateways between them.
-            - **Text Extraction:** Read the label inside each shape exactly for the `name`.
+            ### 1. Visual Decoding Rules
+            - **Role Inference (Icons):**
+              - 👤 Person/User Icon -> Role: **"User"** (or specific name like 'Manager' if written).
+              - ⚙️/🛢️/🖥️ System/SQL/Gear Icon -> Role: **"System"**.
+              - ✉️ Envelope -> Role: **"System"** (Notification).
+            - **Shape Semantics:**
+              - ◇ **Diamond (Gateway):** Mandatory `type: "DECISION"`. Use the label text (e.g., "XOR1", "AND", "Check Letter").
+              - □ **Rectangle (Task):** Mandatory `type: "ACTION"`.
+              - 🕒 **Clock (Timer):** Treat as an `ACTION` step named "Wait for [Time]".
 
-            ### 2. Logic & topology Extraction (Crucial)
-            - **Gateways (◇ Diamonds):**
-              - Mark `type: "DECISION"`.
-              - **IMPORTANT:** In the `description`, explicitly state the conditions found on the outgoing arrows.
-              - *Example:* "Exclusive Gateway. If 'Approved' -> Go to Payment. If 'Rejected' -> Return to Request."
-            - **Rejection/Loops:**
-              - If an arrow goes BACK to a previous step, mention this in the `description`.
-              - *Example:* "Manager review task. If rejected, the process loops back to the 'Submit Expense' step."
+            ### 2. Sequence & Logic
+            - Follow the arrows strictly.
+            - **Gateways:** If you see a Gateway (Diamond), create a step for it.
+            - **Loops:** If an arrow goes back, mention this in the `description`.
 
-            ### 3. Output Data Structure (Strict JSON)
-            Return ONLY the raw JSON matching `ProcessDefinition`. No markdown.
+            ### 3. [NEW] Confidence & Evidence (Strict Calculation)
+            - **Do NOT use a static value (e.g., 0.95) for all nodes.**
+            - Calculate `confidence` (0.5 - 1.0) based on:
+              1. **Text Clarity:** Is the text blurry? (-0.2)
+              2. **Shape Ambiguity:** Is it clearly a diamond/rect? If hand-drawn or weird shape, lower score (-0.2).
+              3. **Context:** Does the text match the shape? (e.g. 'Approval' in a Diamond is high confidence).
+            - **`reason` Field (Required):** Briefly explain the score.
+              - Examples: "Text is perfectly clear", "Blurry label, inferred from context", "Shape is ambiguous".
+
+            ### 4. Output Data Structure (Strict JSON)
+            Return ONLY the raw JSON. No markdown formatting.
 
             {
-              "topic": "Expense Reimbursement Process",
+              "topic": "Exact Title from Image or Inferred Professional Name",
               "steps": [
                 {
-                  "stepId": "1",
-                  "name": "Submit Expense",
-                  "role": "Employee", // MUST be extracted from the "Employee" Swimlane header
-                  "description": "Employee fills out the expense form and uploads receipts.",
-                  "type": "ACTION"
-                },
-                {
-                  "stepId": "2",
-                  "name": "Manager Approval",
-                  "role": "Manager", // MUST be extracted from the "Manager" Swimlane header
-                  "description": "Manager reviews the cost. If 'Approved' proceeds to HR. If 'Rejected', it loops back to 'Submit Expense' for correction.",
-                  "type": "DECISION"
-                },
-                {
-                  "stepId": "3",
-                  "name": "Process Payment",
-                  "role": "HR", // MUST be extracted from the "HR" Swimlane header
-                  "description": "HR system executes the transfer via API.",
-                  "type": "ACTION"
+                  "stepId": "1", 
+                  "name": "Pause Main Process SLAs",
+                  "role": "System",
+                  "description": "SQL Task to pause SLAs.",
+                  "type": "ACTION",
+                  "sourceRef": {
+                    "fileId": "uploaded_asset",
+                    "pageIndex": 0,
+                    "rects": [{ "x": 10, "y": 20, "w": 15, "h": 10 }],
+                    "confidence": 0.85,
+                    "snippet": "Pause Main SLAs",
+                    "reason": "Text clear but icon is small"
+                  }
                 }
+                // ... EXTRACT EVERY NODE
               ]
             }
             """;
