@@ -1,7 +1,7 @@
 package com.example.aicopilot.service;
 
 import com.example.aicopilot.dto.analysis.AssetAnalysisResponse;
-import com.example.aicopilot.dto.definition.ProcessDefinition;
+import com.example.aicopilot.dto.definition.ProcessDefinition; // [New] Import
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ImageContent;
@@ -84,8 +84,7 @@ public class AssetAnalysisService {
         return null;
     }
 
-    // [Updated] Highly Specialized Prompt for BPMN/Flowchart Image Reverse Engineering
-    // Includes detailed instructions for Confidence Calculation & Reasoning.
+    // [Updated] Highly Specialized Prompt for BPMN/Flowchart Image Reverse Engineering with Strict Swimlane Detection
     private String getBPMNAnalysisPrompt() {
         return """
             You are an expert **BPMN 2.0 Reverse Engineer** and **Process Architect**.
@@ -98,10 +97,16 @@ public class AssetAnalysisService {
             - **OCR Accuracy:** Read the **EXACT label text** inside each shape.
 
             ### 1. Visual Decoding Rules
-            - **Role Inference (Icons):**
-              - 👤 Person/User Icon -> Role: **"User"** (or specific name like 'Manager' if written).
-              - ⚙️/🛢️/🖥️ System/SQL/Gear Icon -> Role: **"System"**.
-              - ✉️ Envelope -> Role: **"System"** (Notification).
+            - **Hierarchy Detection (Pool vs Lane):**
+              - Ignore the outermost container title (e.g., "Pool 1", "Main Process") if it contains inner subdivisions.
+              - Focus on the **Inner Containers (Lanes)** that divide the chart horizontally or vertically.
+              - **Read Headers:** Look for specific headers like **"Employee", "Manager", "HR", "Finance"**. These are the valid `role` values.
+            
+            - **Spatial Mapping:**
+              - For every Task or Gateway node, visually determine **which Lane's boundary it falls inside**.
+              - Assign that Lane's header text as the `role` for the step.
+              - Example: If a "Approve" node is visually inside the "Manager" column, its role MUST be "Manager".
+
             - **Shape Semantics:**
               - ◇ **Diamond (Gateway):** Mandatory `type: "DECISION"`. Use the label text (e.g., "XOR1", "AND", "Check Letter").
               - □ **Rectangle (Task):** Mandatory `type: "ACTION"`.
@@ -109,8 +114,10 @@ public class AssetAnalysisService {
 
             ### 2. Sequence & Logic
             - Follow the arrows strictly.
-            - **Gateways:** If you see a Gateway (Diamond), create a step for it.
-            - **Loops:** If an arrow goes back, mention this in the `description`.
+            - **Gateways:** If you see a Gateway (Diamond), create a step for it. In the `description`, explicitly state the conditions found on the outgoing arrows.
+              - *Example:* "Exclusive Gateway. If 'Approved' -> Go to Payment. If 'Rejected' -> Return to Request."
+            - **Rejection/Loops:** If an arrow goes BACK to a previous step (especially across Swimlanes), mention this in the `description`.
+              - *Example:* "Manager review task. If rejected, the process loops back to the 'Leave Request Application' step in the Employee lane."
 
             ### 3. [NEW] Confidence & Evidence (Strict Calculation)
             - **Do NOT use a static value (e.g., 0.95) for all nodes.**
@@ -129,17 +136,32 @@ public class AssetAnalysisService {
               "steps": [
                 {
                   "stepId": "1", 
-                  "name": "Pause Main Process SLAs",
-                  "role": "System",
-                  "description": "SQL Task to pause SLAs.",
+                  "name": "Leave Request Application",
+                  "role": "Employee", // Extracted from "Employee" Lane
+                  "description": "Employee submits the leave request.",
                   "type": "ACTION",
                   "sourceRef": {
                     "fileId": "uploaded_asset",
                     "pageIndex": 0,
                     "rects": [{ "x": 10, "y": 20, "w": 15, "h": 10 }],
                     "confidence": 0.85,
-                    "snippet": "Pause Main SLAs",
-                    "reason": "Text clear but icon is small"
+                    "snippet": "Leave Request Application",
+                    "reason": "Text clear, inside Employee lane"
+                  }
+                },
+                {
+                  "stepId": "2",
+                  "name": "Manager Review",
+                  "role": "Manager", // Extracted from "Manager" Lane
+                  "description": "Manager reviews the request. If 'Approved' -> Go to HR Review. If 'Rejected' -> Loop back to Leave Request Application.",
+                  "type": "DECISION",
+                  "sourceRef": {
+                    "fileId": "uploaded_asset",
+                    "pageIndex": 0,
+                    "rects": [{ "x": 30, "y": 20, "w": 15, "h": 10 }],
+                    "confidence": 0.9,
+                    "snippet": "Manager Review",
+                    "reason": "Clear text in Manager lane"
                   }
                 }
                 // ... EXTRACT EVERY NODE
