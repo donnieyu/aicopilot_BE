@@ -125,9 +125,7 @@ GET /api/copilot/status/{jobId}
 You can test all APIs directly within your IDE (IntelliJ IDEA, VS Code) using the provided HTTP file.
 
 1. Open `src/test.http`.
-
 2. Click the Run (▶️) button next to each request.
-
 3. The request scenarios are pre-configured to:
    - Start a job (Mode A/B
    - Automatically capture the `jobId`
