@@ -33,34 +33,6 @@ The AI doesn't just build blindly. When you select a node, it analyzes the curre
 
 - **Unified Configuration**: Manages settings for diverse nodes like `UserTask`, `ServiceTask`, and `Gateway` under a single unified structure (`NodeConfiguration`), maximizing frontend interoperability.
 
-## 🏗️ Architecture
-
-This system follows a **3-Stage Event Pipeline** structure based on **Spring Boot** and **LangChain4j**.
-
-```mermaid
-graph TD
-    Client[Frontend Client] -->|POST /start| Controller
-    Controller -->|Async| Orchestrator[Workflow Orchestrator]
-    
-    subgraph "Stage 1: Structure"
-        Orchestrator -->|Call| PA[Process Architect Agent]
-        PA -->|JSON| Process[Process Definition]
-    end
-    
-    Process -->|Event Pub| EventBus[Spring Event Bus]
-    
-    subgraph "Stage 2 & 3: Detail (Async)"
-        EventBus -->|Listener| AsyncGen[Async Artifact Generator]
-        AsyncGen -->|Call| DM[Data Modeler Agent]
-        DM -->|JSON| Data[Data Entities]
-        AsyncGen -->|Call| FD[Form UX Designer Agent]
-        FD -->|JSON| Form[Form Schema]
-    end
-    
-    AsyncGen -->|Update| Repo[Job Repository]
-    Client -->|Polling| Repo
-```
-
 ### **🛠️ Tech Stack**
 
 - **Core**: Java 17, Spring Boot 3.x
