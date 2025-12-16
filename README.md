@@ -2,7 +2,7 @@
 
 **"More than just a generator—a true AI Co-Architect."**
 
-> 🔗 **Paired Frontend Repository:** [ai-workflow-designer-fe](https://github.com/donnieyu/aicopilot_FE)  
+> 🔗 **Paired Frontend Repository:** [aicopilot_FE](https://github.com/donnieyu/aicopilot_FE)  
 > (The frontend client runs on port 5173 and proxies API requests to this backend)
 
 This project is an intelligent backend service that transforms natural language requirements into executable business processes, data models, and user interfaces. Design complex enterprise application structures with a single prompt, and collaborate in real-time to refine and evolve them.
