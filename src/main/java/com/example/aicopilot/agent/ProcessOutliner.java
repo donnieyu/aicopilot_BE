@@ -30,6 +30,8 @@ public interface ProcessOutliner {
           - `'ACTION'`: For any task, activity, or process step. (Do NOT use 'Process', 'Task', or anything else).
           - `'DECISION'`: For gateways, approvals, or conditional checks.
         - **VIOLATION of `type` constraint will cause system failure.**
+        
+        **IMPORTANT:** The output must be valid JSON.
     """)
     ProcessDefinition draftDefinition(String userRequest);
 
@@ -50,6 +52,7 @@ public interface ProcessOutliner {
         [Output Structure & Type Rules]
         Return a JSON with 'topic' and a list of 'steps'. Each step has 'stepId', 'name', 'role', 'description', 'type'.
         **IMPORTANT:** The `type` field MUST be exactly "ACTION" or "DECISION". Never use "Process" or any other value.
+        Ensure the response is valid JSON.
     """)
     ProcessDefinition suggestSteps(
             @V("topic") String topic,
@@ -81,6 +84,8 @@ public interface ProcessOutliner {
         - `role`: The actor for this step.
         - `description`: Detailed action description explaining why this step is needed here.
         - `type`: Must be 'ACTION' or 'DECISION'. Do NOT use 'Process'.
+        
+        Provide the response in JSON format.
     """)
     ProcessStep suggestSingleStep(
             @V("topic") String topic,

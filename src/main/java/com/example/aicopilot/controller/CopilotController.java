@@ -1,16 +1,8 @@
 package com.example.aicopilot.controller;
 
-import com.example.aicopilot.agent.DataModeler;
-import com.example.aicopilot.agent.FlowAnalyst;
-import com.example.aicopilot.agent.FormUXDesigner;
-import com.example.aicopilot.agent.ProcessOutliner;
-import com.example.aicopilot.agent.SuggestionAgent;
-import com.example.aicopilot.dto.JobStatus;
-import com.example.aicopilot.dto.analysis.AnalysisReport;
-import com.example.aicopilot.dto.analysis.AnalysisResult;
-import com.example.aicopilot.dto.analysis.AssetAnalysisResponse; // Kept for reference if needed
-import com.example.aicopilot.dto.analysis.FixGraphRequest;
-import com.example.aicopilot.dto.analysis.GraphStructure;
+import com.example.aicopilot.agent.*;
+import com.example.aicopilot.dto.*;
+import com.example.aicopilot.dto.analysis.*;
 import com.example.aicopilot.dto.dataEntities.DataEntitiesResponse;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.example.aicopilot.dto.definition.ProcessStep;
@@ -18,10 +10,7 @@ import com.example.aicopilot.dto.form.FormDefinitions;
 import com.example.aicopilot.dto.form.FormResponse;
 import com.example.aicopilot.dto.suggestion.AutoDiscoveryRequest;
 import com.example.aicopilot.dto.suggestion.SuggestionResponse;
-import com.example.aicopilot.service.AssetAnalysisService;
-import com.example.aicopilot.service.DataContextService;
-import com.example.aicopilot.service.JobRepository;
-import com.example.aicopilot.service.WorkflowOrchestrator;
+import com.example.aicopilot.service.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -52,7 +41,20 @@ public class CopilotController {
     private final AssetAnalysisService assetAnalysisService;
     private final ObjectMapper objectMapper;
 
-    // ... (Existing methods: startJob, transformJob, getStatus, suggestNextNode, suggestLegacy, suggestOutline, suggestStepDetail)
+    // [New] Phase 2: Chat with Context
+    @PostMapping("/chat")
+    public ResponseEntity<?> chatWithAi(@RequestBody ChatRequest request) {
+        String jobId = UUID.randomUUID().toString();
+        jobRepository.initJob(jobId);
+
+        // 지식 기반 비동기 작업 시작
+        orchestrator.runChatJob(jobId, request.userPrompt(), request.selectedAssetIds());
+
+        return ResponseEntity.accepted().body(Map.of(
+                "jobId", jobId,
+                "message", "AI Chat Job Started"
+        ));
+    }
 
     @PostMapping("/start")
     public ResponseEntity<?> startJob(@RequestBody Map<String, String> request) {
@@ -248,13 +250,12 @@ public class CopilotController {
         }
     }
 
-    // [Updated] Asset Analysis Endpoint: Returns ProcessDefinition for Direct Map Generation
+    // [Updated] Legacy Asset Analysis (Direct Map)
     @PostMapping(value = "/analyze/asset", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ProcessDefinition> analyzeAsset(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().build();
         }
-        // Use the new method to get a full Process Definition
         ProcessDefinition response = assetAnalysisService.analyzeAssetToDefinition(file);
         return ResponseEntity.ok(response);
     }
