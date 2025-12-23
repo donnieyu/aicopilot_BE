@@ -3,6 +3,8 @@ package com.example.aicopilot.controller;
 import com.example.aicopilot.agent.*;
 import com.example.aicopilot.dto.*;
 import com.example.aicopilot.dto.analysis.*;
+import com.example.aicopilot.dto.chat.ChatRequest; // [Fix] Added missing import
+import com.example.aicopilot.dto.chat.ChatResponse;
 import com.example.aicopilot.dto.dataEntities.DataEntitiesResponse;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.example.aicopilot.dto.definition.ProcessStep;
@@ -12,19 +14,24 @@ import com.example.aicopilot.dto.suggestion.AutoDiscoveryRequest;
 import com.example.aicopilot.dto.suggestion.SuggestionResponse;
 import com.example.aicopilot.service.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.model.chat.ChatLanguageModel;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
+/**
+ * Main controller for AI Copilot interactions.
+ * All logic and responses are standardized in English.
+ */
+@Slf4j
 @RestController
 @RequestMapping("/api/copilot")
 @RequiredArgsConstructor
@@ -38,21 +45,32 @@ public class CopilotController {
     private final DataModeler dataModeler;
     private final FormUXDesigner formUXDesigner;
     private final DataContextService dataContextService;
+    private final ChatLanguageModel chatLanguageModel;
+    private final AssetRepository assetRepository;
     private final AssetAnalysisService assetAnalysisService;
     private final ObjectMapper objectMapper;
 
-    // [New] Phase 2: Chat with Context
+    /**
+     * Integrated Chat Endpoint.
+     * Triggers asynchronous process generation for every request.
+     */
     @PostMapping("/chat")
     public ResponseEntity<?> chatWithAi(@RequestBody ChatRequest request) {
+        String prompt = request.userPrompt();
+
+        // Initialize a new design job
         String jobId = UUID.randomUUID().toString();
         jobRepository.initJob(jobId);
 
-        // 지식 기반 비동기 작업 시작
-        orchestrator.runChatJob(jobId, request.userPrompt(), request.selectedAssetIds());
+        log.info("Starting Chat-Driven Design Job [{}]. User Prompt: '{}'", jobId, prompt);
 
-        return ResponseEntity.accepted().body(Map.of(
-                "jobId", jobId,
-                "message", "AI Chat Job Started"
+        // Execute the orchestration logic asynchronously
+        orchestrator.runChatJob(jobId, prompt, request.selectedAssetIds());
+
+        // Return the Job ID for frontend polling
+        return ResponseEntity.accepted().body(new ChatResponse(
+                null,
+                jobId
         ));
     }
 
@@ -61,8 +79,8 @@ public class CopilotController {
         String prompt = request.get("userPrompt");
         String jobId = UUID.randomUUID().toString();
         jobRepository.initJob(jobId);
-        orchestrator.runQuickStartJob(jobId, prompt);
-        return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Mode A Started"));
+        orchestrator.runChatJob(jobId, prompt, java.util.List.of());
+        return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Standard Job Started"));
     }
 
     @PostMapping("/transform")
@@ -72,9 +90,9 @@ public class CopilotController {
             String definitionJson = objectMapper.writeValueAsString(definition);
             jobRepository.initJob(jobId);
             orchestrator.runTransformationJob(jobId, definitionJson);
-            return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Mode B Started"));
+            return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Transformation Job Started"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Invalid Definition");
+            return ResponseEntity.badRequest().body("Invalid Process Definition");
         }
     }
 
@@ -115,48 +133,6 @@ public class CopilotController {
         return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/suggest")
-    public ResponseEntity<SuggestionResponse> suggestLegacy(@RequestBody Map<String, String> request) {
-        return suggestNextNode(request);
-    }
-
-    @PostMapping("/suggest/outline")
-    public ResponseEntity<ProcessDefinition> suggestOutline(@RequestBody Map<String, String> request) {
-        String topic = request.get("topic");
-        String description = request.get("description");
-
-        ProcessDefinition definition = processOutliner.suggestSteps(topic, description);
-        return ResponseEntity.ok(definition);
-    }
-
-    @PostMapping("/suggest/step")
-    public ResponseEntity<ProcessStep> suggestStepDetail(@RequestBody Map<String, Object> request) {
-        String topic = (String) request.get("topic");
-        String context = (String) request.get("context");
-        Integer stepIndex = (Integer) request.get("stepIndex");
-        List<Map<String, String>> rawSteps = (List<Map<String, String>>) request.get("currentSteps");
-
-        if (topic == null || stepIndex == null) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        List<String> stepSummaries = List.of();
-        if (rawSteps != null) {
-            final int[] index = {0};
-            stepSummaries = rawSteps.stream()
-                    .map(s -> String.format("[%d] %s (%s)", index[0]++, s.get("name"), s.get("role")))
-                    .collect(Collectors.toList());
-        }
-
-        ProcessStep suggestedStep = processOutliner.suggestSingleStep(
-                topic,
-                context != null ? context : "",
-                stepIndex,
-                stepSummaries
-        );
-        return ResponseEntity.ok(suggestedStep);
-    }
-
     @PostMapping("/analyze")
     public ResponseEntity<?> analyzeProcess(@RequestBody Map<String, Object> graphSnapshot) {
         try {
@@ -168,7 +144,7 @@ public class CopilotController {
             Object edgesObj = graphSnapshot.get("edges");
 
             if (nodesObj == null || edgesObj == null) {
-                throw new IllegalArgumentException("'nodes' or 'edges' data is missing.");
+                throw new IllegalArgumentException("Nodes or Edges data is missing in the snapshot.");
             }
 
             String nodesJson = objectMapper.writeValueAsString(nodesObj);
@@ -178,10 +154,10 @@ public class CopilotController {
 
             return ResponseEntity.ok(report.results());
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Analysis failed", e);
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", e.getClass().getSimpleName(),
-                    "message", e.getMessage() != null ? e.getMessage() : "Unknown Error"
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown analysis error"
             ));
         }
     }
@@ -189,7 +165,6 @@ public class CopilotController {
     @PostMapping("/analyze/fix")
     public ResponseEntity<GraphStructure> fixError(@RequestBody FixGraphRequest request) {
         try {
-            // Serialize graph for AI
             String graphJson = objectMapper.writeValueAsString(request.graphSnapshot());
             AnalysisResult error = request.error();
 
@@ -202,7 +177,7 @@ public class CopilotController {
 
             return ResponseEntity.ok(fixedGraph);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Auto-fix failed", e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -226,7 +201,7 @@ public class CopilotController {
             DataEntitiesResponse suggestions = dataModeler.suggestMissingEntities(processJson, dataJson);
             return ResponseEntity.ok(suggestions);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Data auto-discovery failed", e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -245,12 +220,11 @@ public class CopilotController {
             FormResponse suggestions = formUXDesigner.suggestMissingForms(processJson, dataJson, formsJson);
             return ResponseEntity.ok(suggestions);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Form auto-discovery failed", e);
             return ResponseEntity.internalServerError().build();
         }
     }
 
-    // [Updated] Legacy Asset Analysis (Direct Map)
     @PostMapping(value = "/analyze/asset", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ProcessDefinition> analyzeAsset(@RequestParam("file") MultipartFile file) {
         if (file.isEmpty()) {

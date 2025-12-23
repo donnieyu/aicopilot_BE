@@ -15,10 +15,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
- * Workflow Orchestrator (Updated for Chat-Driven Context)
+ * Workflow Orchestrator (Ver 8.3 - Phase 3 Refinement)
+ * AI가 사용자 의도를 파악하고, Context(Asset)를 기반으로 프로세스를 생성하는 핵심 엔진입니다.
  */
 @Slf4j
 @Service
@@ -34,27 +34,51 @@ public class WorkflowOrchestrator {
     private final ObjectMapper objectMapper;
 
     /**
-     * [Phase 2] 지식 컨텍스트를 포함한 채팅 기반 프로세스 생성
+     * [Phase 3] RAG 기반 채팅형 프로세스 생성 오케스트레이터
+     * 사용자의 자연어 요청과 지식 자산(Asset)을 결합하여 프로세스 정의를 도출합니다.
      */
     @Async
     public void runChatJob(String jobId, String userPrompt, List<String> assetIds) {
         try {
-            // 1. Context Construction
-            String context = buildContextFromAssets(assetIds);
+            log.info("Starting Chat-Driven Job [{}]. Assets: {}", jobId, assetIds.size());
 
-            // [Fix] JSON 포맷 강제 문구 추가 (OpenAI json_object 모드 요구사항)
-            String augmentedPrompt = userPrompt + "\n\n" + context + "\n\nIMPORTANT: Provide the response in valid JSON format.";
+            // 1. Context Build (RAG)
+            String ragContext = buildContextFromAssets(assetIds);
 
-            log.info("Starting Chat Job {}. Assets: {}", jobId, assetIds.size());
+            // 2. Prompt Engineering (Chain of Thought & Guardrails)
+            // AI에게 역할을 부여하고, 지식 기반으로만 답변하도록 제약을 겁니다.
+            String augmentedPrompt = String.format("""
+                ### 1. MISSION
+                You are an expert 'Business Process Architect'.
+                Analyze the user's request and the provided [Context Knowledge] to draft a structured business process.
+                
+                ### 2. CONTEXT KNOWLEDGE (Strict Reference)
+                %s
+                
+                ### 3. USER REQUEST
+                "%s"
+                
+                ### 4. INSTRUCTIONS (Critical)
+                - **Fact-Based:** Design the process logic primarily based on the [Context Knowledge]. If the knowledge contradicts standard practices, follow the knowledge (company rules).
+                - **Completeness:** Ensure the process has a clear start, logical steps, decision points (gateways), and an end.
+                - **Role Assignment:** Infer precise roles (e.g., 'Team Lead', 'Finance Mgr') mentioned in the context.
+                - **Output Format:** You MUST return a valid JSON object matching the `ProcessDefinition` schema (topic, steps[]).
+                """,
+                    ragContext.isEmpty() ? "(No specific knowledge provided. Use industry standards.)" : ragContext,
+                    userPrompt
+            );
 
-            // 2. Step 1: Outlining (with Context)
-            jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Step 1: Analyzing context and drafting steps...");
+            // 3. Step 1: Outlining (Drafting)
+            jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "AI Architect is analyzing context & drafting steps...");
 
-            // 기존 Outliner는 prompt만 받으므로, 컨텍스트를 prompt에 녹여서 전달
+            // ProcessOutliner 에이전트를 호출하여 1차 구조(리스트)를 잡습니다.
             ProcessDefinition definition = processOutliner.draftDefinition(augmentedPrompt);
             String definitionJson = objectMapper.writeValueAsString(definition);
 
-            // 3. Step 2: Transformation
+            log.debug("Draft generated for Job {}: {}", jobId, definitionJson);
+
+            // 4. Step 2: Transformation (BPMN Map Generation)
+            // 리스트를 그래프(Node/Edge)로 변환합니다.
             transformAndFinalize(jobId, userPrompt, definitionJson);
 
         } catch (Exception e) {
@@ -62,22 +86,29 @@ public class WorkflowOrchestrator {
         }
     }
 
+    /**
+     * Asset ID 목록을 받아 텍스트 컨텍스트를 조립합니다.
+     * 토큰 제한을 고려하여 요약(description) 위주로 구성하되, 필요시 원문(extractedText)을 포함할 수 있습니다.
+     */
     private String buildContextFromAssets(List<String> assetIds) {
         if (assetIds == null || assetIds.isEmpty()) return "";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("### Context Knowledge (MUST COMPLY):\n");
-
         for (String id : assetIds) {
             assetRepository.findById(id).ifPresent(asset -> {
-                sb.append("- Source: ").append(asset.fileName()).append("\n");
-                // [Fix] summary() -> description()으로 메서드명 수정 (DTO 리팩토링 반영)
-                sb.append("  Content Summary: ").append(asset.description()).append("\n");
-                // 필요한 경우 전체 텍스트 주입 (토큰 제한 고려 필요)
-                // sb.append("  Full Text: ").append(asset.extractedText()).append("\n");
+                sb.append(String.format("- [Source: %s]\n", asset.fileName()));
+                // 원문 텍스트가 있으면 원문을 우선 사용 (정확도 향상), 없으면 요약본 사용
+                String content = (asset.extractedText() != null && !asset.extractedText().isBlank())
+                        ? asset.extractedText()
+                        : asset.description();
+
+                // 너무 긴 텍스트는 잘라서 넣는 로직 (간이 구현)
+                if (content.length() > 3000) {
+                    content = content.substring(0, 3000) + "...(truncated)";
+                }
+                sb.append(content).append("\n\n");
             });
         }
-        sb.append("--------------------------------------------------\n");
         return sb.toString();
     }
 
@@ -86,9 +117,8 @@ public class WorkflowOrchestrator {
      */
     @Async
     public void runQuickStartJob(String jobId, String userRequest) {
-        // [Fix] Quick Start에서도 JSON 포맷 강제
-        String jsonPrompt = userRequest + "\n\nPlease provide the output in JSON format.";
-        runChatJob(jobId, jsonPrompt, List.of());
+        // 기존 Quick Start도 이제 Chat Job 로직을 재활용하여 일관성 유지
+        runChatJob(jobId, userRequest, List.of());
     }
 
     /**
@@ -104,45 +134,54 @@ public class WorkflowOrchestrator {
         }
     }
 
+    // 공통 변환 및 검증 로직 (2-Pass Self-Correction 포함)
     private void transformAndFinalize(String jobId, String userRequest, String definitionJson) throws Exception {
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Step 2: Transforming into Process Map...");
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Structuring BPMN diagram...");
 
         long startTransform = System.currentTimeMillis();
         ProcessResponse process = null;
         String lastError = null;
-        int maxRetries = 3;
+        int maxRetries = 2; // 재시도 횟수 조정
 
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 if (attempt == 1) {
                     process = processArchitect.transformToMap(definitionJson);
                 } else {
+                    // 자가 수정 모드: 이전 에러 메시지를 AI에게 전달하여 수정 요청
                     jobRepository.updateState(jobId, JobStatus.State.PROCESSING,
-                            String.format("Auto-correcting structural errors... (Attempt %d/%d)", attempt, maxRetries));
+                            String.format("Optimizing logic structure... (Pass %d)", attempt));
 
                     String invalidMapJson = objectMapper.writeValueAsString(process);
                     process = processArchitect.fixMap(definitionJson, invalidMapJson, lastError);
                 }
 
+                // 구조적 유효성 검증 (필수 연결, 고립 노드 체크 등)
                 processValidator.validate(process);
-                break;
+                break; // 성공 시 루프 탈출
 
-            } catch (IllegalArgumentException e) {
+            } catch (Exception e) {
                 lastError = e.getMessage();
-                if (attempt == maxRetries) throw new RuntimeException("Failed to transform Process Map: " + lastError);
+                log.warn("Transformation attempt {} failed: {}", attempt, lastError);
+
+                if (attempt == maxRetries) {
+                    // 마지막 시도도 실패하면 예외 전파 (사용자에게 알림)
+                    throw new RuntimeException("Failed to generate valid process map: " + lastError);
+                }
             }
         }
 
         long duration = System.currentTimeMillis() - startTransform;
 
+        // 결과 저장 및 이벤트 발행 (-> Data/Form 생성 트리거)
         jobRepository.saveArtifact(jobId, "PROCESS", process, duration);
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Process generated. Designing Data & Forms...");
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Map generated. Analyzing data requirements...");
 
         eventPublisher.publishEvent(new ProcessGeneratedEvent(this, jobId, userRequest, process));
     }
 
     private void handleError(String jobId, Exception e) {
-        e.printStackTrace();
-        jobRepository.updateState(jobId, JobStatus.State.FAILED, "Error: " + e.getMessage());
+        log.error("Job {} failed", jobId, e);
+        jobRepository.updateState(jobId, JobStatus.State.FAILED, "Processing Error: " + e.getMessage());
     }
 }
