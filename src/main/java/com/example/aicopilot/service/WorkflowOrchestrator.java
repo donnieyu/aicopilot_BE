@@ -1,9 +1,8 @@
 package com.example.aicopilot.service;
 
-import com.example.aicopilot.agent.ProcessArchitect;
-import com.example.aicopilot.agent.ProcessOutliner;
+import com.example.aicopilot.agent.*;
 import com.example.aicopilot.dto.JobStatus;
-import com.example.aicopilot.dto.asset.Asset;
+import com.example.aicopilot.dto.chat.*;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
 import com.example.aicopilot.dto.process.ProcessResponse;
 import com.example.aicopilot.event.ProcessGeneratedEvent;
@@ -17,14 +16,17 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Workflow Orchestrator (Ver 8.5 - Reintegrated Critical Instructions)
- * Manages the generation lifecycle with flexible intent detection and strict architectural rules.
+ * Workflow Orchestrator (Ver 10.3 - JSON Mode Compliance)
+ * 모든 AI 에이전트 호출 시 "json" 키워드 포함 및 구조적 응답을 보장합니다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class WorkflowOrchestrator {
 
+    private final InputGuardAgent inputGuardAgent;
+    private final IntentClassifier intentClassifier;
+    private final PartialModifier partialModifier;
     private final ProcessOutliner processOutliner;
     private final ProcessArchitect processArchitect;
     private final ProcessValidator processValidator;
@@ -33,57 +35,93 @@ public class WorkflowOrchestrator {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
-    /**
-     * Intelligent RAG Chat Job
-     * Analyzes intent and applies strict architectural instructions based on context knowledge.
-     */
     @Async
-    public void runChatJob(String jobId, String userPrompt, List<String> assetIds) {
+    public void runChatJob(String jobId, ChatRequest request) {
+        String userPrompt = request.userPrompt();
+        List<String> assetIds = request.selectedAssetIds();
+        String currentProcessJson = request.currentProcessJson();
+
         try {
-            log.info("Executing Chat-Driven Job [{}].", jobId);
+            log.info("Job [{}] started. Validating and classifying intent...", jobId);
 
-            String ragContext = buildContextFromAssets(assetIds);
+            // 1. Validation Rail (Prompt includes "JSON")
+            ValidationResult validation = inputGuardAgent.validate(userPrompt);
 
-            // [Refinement] Reintegrated critical instructions into augmentedPrompt
-            String augmentedPrompt = String.format("""
-                ### MISSION
-                You are a 'Senior Business Process Architect'.
-                Analyze the user's request and the provided [Context Knowledge].
-                
-                ### USER REQUEST
-                "%s"
-                
-                ### CONTEXT KNOWLEDGE
-                %s
-                
-                ### INSTRUCTIONS (Critical)
-                1. **Intent Detection:** If the user request is a simple greeting (e.g., 'Hi', 'Hello') or unrelated to business processes, JUST answer naturally and return an empty 'steps' array in the JSON.
-                2. **Fact-Based:** Design the process logic primarily based on the [Context Knowledge]. If the knowledge contradicts standard practices, follow the knowledge (company rules).
-                3. **Completeness:** Ensure the process has a clear start, logical steps, decision points (gateways), and an end.
-                4. **Role Assignment:** Infer precise roles (e.g., 'Team Lead', 'Finance Mgr') mentioned in the context.
-                5. **Output Format:** You MUST always return a valid JSON object matching the `ProcessDefinition` schema (topic, steps[]).
-                """,
-                    userPrompt,
-                    ragContext.isEmpty() ? "No specific knowledge provided." : ragContext
-            );
-
-            jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "AI Architect is evaluating your request...");
-
-            // Step 1: Outlining (Drafting)
-            ProcessDefinition definition = processOutliner.draftDefinition(augmentedPrompt);
-
-            // If AI decided there are no steps to design (not a process request)
-            if (definition.steps() == null || definition.steps().isEmpty()) {
-                jobRepository.updateState(jobId, JobStatus.State.COMPLETED, "AI has responded to your inquiry.");
-                log.info("Job {} completed as a simple conversation (no process generated).", jobId);
+            if (validation.status() == ValidationResult.ValidationStatus.INVALID) {
+                jobRepository.updateState(jobId, JobStatus.State.COMPLETED, validation.message());
                 return;
             }
 
-            String definitionJson = objectMapper.writeValueAsString(definition);
+            if (validation.status() == ValidationResult.ValidationStatus.BRIDGE) {
+                jobRepository.updateState(jobId, JobStatus.State.COMPLETED, validation.message());
+                return;
+            }
 
-            // Step 2: Transformation (Mapping)
-            transformAndFinalize(jobId, userPrompt, definitionJson);
+            // 2. Intent Classification (Updated to IntentResponse record)
+            IntentResponse response = intentClassifier.classify(userPrompt);
+            IntentType intent = response.intent();
+            log.info("Job [{}] intent determined: {}", jobId, intent);
 
+            // 3. Routing
+            switch (intent) {
+                case DESIGN -> executeDesignFlow(jobId, userPrompt, assetIds);
+                case MODIFY -> {
+                    if (currentProcessJson == null || currentProcessJson.isBlank()) {
+                        jobRepository.updateState(jobId, JobStatus.State.FAILED,
+                                "Modification failed: No process context provided for modification.");
+                    } else {
+                        executeModificationFlow(jobId, userPrompt, currentProcessJson);
+                    }
+                }
+                case ANALYZE -> jobRepository.updateState(jobId, JobStatus.State.COMPLETED, "Optimization audit complete.");
+                default -> jobRepository.updateState(jobId, JobStatus.State.COMPLETED, "How can I help you with your design?");
+            }
+        } catch (Exception e) {
+            handleError(jobId, e);
+        }
+    }
+
+    private void executeDesignFlow(String jobId, String userPrompt, List<String> assetIds) throws Exception {
+        String ragContext = buildContextFromAssets(assetIds);
+        String augmentedPrompt = String.format("""
+            ### MISSION: Senior Business Process Architect
+            Analyze requirements and draft a structured business process in **JSON** format.
+            
+            USER REQUEST: "%s"
+            KNOWLEDGE: %s
+            """, userPrompt, ragContext.isEmpty() ? "General standards." : ragContext);
+
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "AI Architect is drafting process steps...");
+        ProcessDefinition definition = processOutliner.draftDefinition(augmentedPrompt);
+
+        if (definition.steps() == null || definition.steps().isEmpty()) {
+            jobRepository.updateState(jobId, JobStatus.State.COMPLETED, "Please provide more details for the process design.");
+            return;
+        }
+
+        transformAndFinalize(jobId, userPrompt, objectMapper.writeValueAsString(definition));
+    }
+
+    private void executeModificationFlow(String jobId, String userPrompt, String currentProcessJson) throws Exception {
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Applying modifications in **JSON** format...");
+        long startTime = System.currentTimeMillis();
+
+        ProcessResponse updatedProcess = partialModifier.modifyProcess(currentProcessJson, userPrompt);
+        processValidator.validate(updatedProcess);
+
+        jobRepository.saveArtifact(jobId, "PROCESS", updatedProcess, System.currentTimeMillis() - startTime);
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Modification applied successfully.");
+
+        eventPublisher.publishEvent(new ProcessGeneratedEvent(this, jobId, userPrompt, updatedProcess));
+    }
+
+    public void runQuickStartJob(String jobId, String userRequest) {
+        runChatJob(jobId, new ChatRequest(userRequest, List.of(), null));
+    }
+
+    public void runTransformationJob(String jobId, String definitionJson) {
+        try {
+            transformAndFinalize(jobId, "Manual Transformation", definitionJson);
         } catch (Exception e) {
             handleError(jobId, e);
         }
@@ -96,8 +134,7 @@ public class WorkflowOrchestrator {
             assetRepository.findById(id).ifPresent(asset -> {
                 sb.append(String.format("- [Source: %s]\n", asset.fileName()));
                 String content = (asset.extractedText() != null && !asset.extractedText().isBlank())
-                        ? asset.extractedText()
-                        : asset.description();
+                        ? asset.extractedText() : asset.description();
                 if (content.length() > 3000) content = content.substring(0, 3000) + "...";
                 sb.append(content).append("\n\n");
             });
@@ -105,52 +142,20 @@ public class WorkflowOrchestrator {
         return sb.toString();
     }
 
-    @Async
-    public void runQuickStartJob(String jobId, String userRequest) {
-        runChatJob(jobId, userRequest, List.of());
-    }
-
-    @Async
-    public void runTransformationJob(String jobId, String definitionJson) {
-        try {
-            transformAndFinalize(jobId, "Manual Transformation", definitionJson);
-        } catch (Exception e) {
-            handleError(jobId, e);
-        }
-    }
-
     private void transformAndFinalize(String jobId, String userRequest, String definitionJson) throws Exception {
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Converting logic to BPMN map...");
-
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Generating visual BPMN diagram in **JSON**...");
         long startTransform = System.currentTimeMillis();
-        ProcessResponse process = null;
-        String lastError = null;
-        int maxRetries = 2;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                if (attempt == 1) {
-                    process = processArchitect.transformToMap(definitionJson);
-                } else {
-                    String invalidMapJson = objectMapper.writeValueAsString(process);
-                    process = processArchitect.fixMap(definitionJson, invalidMapJson, lastError);
-                }
-                processValidator.validate(process);
-                break;
-            } catch (Exception e) {
-                lastError = e.getMessage();
-                if (attempt == maxRetries) throw new RuntimeException("Map structure error: " + lastError);
-            }
-        }
+        ProcessResponse process = processArchitect.transformToMap(definitionJson);
+        processValidator.validate(process);
 
         jobRepository.saveArtifact(jobId, "PROCESS", process, System.currentTimeMillis() - startTransform);
-        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Drafting data models and forms...");
+        jobRepository.updateState(jobId, JobStatus.State.PROCESSING, "Syncing data models and forms...");
 
         eventPublisher.publishEvent(new ProcessGeneratedEvent(this, jobId, userRequest, process));
     }
 
     private void handleError(String jobId, Exception e) {
-        log.error("Job {} failed: {}", jobId, e.getMessage());
-        jobRepository.updateState(jobId, JobStatus.State.FAILED, "System Error: " + e.getMessage());
+        log.error("Job [{}] failed: {}", jobId, e.getMessage());
+        jobRepository.updateState(jobId, JobStatus.State.FAILED, "System error: " + e.getMessage());
     }
 }

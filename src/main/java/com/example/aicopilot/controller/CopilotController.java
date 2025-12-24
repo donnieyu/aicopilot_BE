@@ -3,7 +3,7 @@ package com.example.aicopilot.controller;
 import com.example.aicopilot.agent.*;
 import com.example.aicopilot.dto.*;
 import com.example.aicopilot.dto.analysis.*;
-import com.example.aicopilot.dto.chat.ChatRequest; // [Fix] Added missing import
+import com.example.aicopilot.dto.chat.ChatRequest;
 import com.example.aicopilot.dto.chat.ChatResponse;
 import com.example.aicopilot.dto.dataEntities.DataEntitiesResponse;
 import com.example.aicopilot.dto.definition.ProcessDefinition;
@@ -29,7 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Main controller for AI Copilot interactions.
- * All logic and responses are standardized in English.
+ * Standardized for Ver 10.2 Orchestrator.
  */
 @Slf4j
 @RestController
@@ -52,47 +52,56 @@ public class CopilotController {
 
     /**
      * Integrated Chat Endpoint.
-     * Triggers asynchronous process generation for every request.
+     * Uses Intent-Aware Orchestrator for processing.
+     * [Fix] Updated to call orchestrator.runChatJob(jobId, request) correctly.
      */
     @PostMapping("/chat")
     public ResponseEntity<?> chatWithAi(@RequestBody ChatRequest request) {
-        String prompt = request.userPrompt();
-
-        // Initialize a new design job
         String jobId = UUID.randomUUID().toString();
         jobRepository.initJob(jobId);
 
-        log.info("Starting Chat-Driven Design Job [{}]. User Prompt: '{}'", jobId, prompt);
+        log.info("Starting AI Chat Job [{}]. User Prompt: '{}'", jobId, request.userPrompt());
 
-        // Execute the orchestration logic asynchronously
-        orchestrator.runChatJob(jobId, prompt, request.selectedAssetIds());
+        // Execute logic asynchronously with the full request object
+        orchestrator.runChatJob(jobId, request);
 
-        // Return the Job ID for frontend polling
         return ResponseEntity.accepted().body(new ChatResponse(
                 null,
                 jobId
         ));
     }
 
+    /**
+     * Legacy Start Job Endpoint.
+     * [Fix] Maps to runQuickStartJob in Orchestrator.
+     */
     @PostMapping("/start")
     public ResponseEntity<?> startJob(@RequestBody Map<String, String> request) {
         String prompt = request.get("userPrompt");
         String jobId = UUID.randomUUID().toString();
         jobRepository.initJob(jobId);
-        orchestrator.runChatJob(jobId, prompt, java.util.List.of());
+
+        orchestrator.runQuickStartJob(jobId, prompt);
+
         return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Standard Job Started"));
     }
 
+    /**
+     * Direct Transformation Endpoint.
+     * [Fix] Maps to runTransformationJob in Orchestrator.
+     */
     @PostMapping("/transform")
     public ResponseEntity<?> transformJob(@RequestBody ProcessDefinition definition) {
         String jobId = UUID.randomUUID().toString();
         try {
             String definitionJson = objectMapper.writeValueAsString(definition);
             jobRepository.initJob(jobId);
+
             orchestrator.runTransformationJob(jobId, definitionJson);
+
             return ResponseEntity.accepted().body(Map.of("jobId", jobId, "message", "Transformation Job Started"));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("Invalid Process Definition");
+            return ResponseEntity.badRequest().body("Invalid Process Definition JSON");
         }
     }
 
@@ -136,15 +145,11 @@ public class CopilotController {
     @PostMapping("/analyze")
     public ResponseEntity<?> analyzeProcess(@RequestBody Map<String, Object> graphSnapshot) {
         try {
-            if (flowAnalyst == null) {
-                throw new IllegalStateException("FlowAnalyst bean is not initialized.");
-            }
-
             Object nodesObj = graphSnapshot.get("nodes");
             Object edgesObj = graphSnapshot.get("edges");
 
             if (nodesObj == null || edgesObj == null) {
-                throw new IllegalArgumentException("Nodes or Edges data is missing in the snapshot.");
+                throw new IllegalArgumentException("Snapshot is missing nodes or edges.");
             }
 
             String nodesJson = objectMapper.writeValueAsString(nodesObj);
@@ -156,8 +161,8 @@ public class CopilotController {
         } catch (Exception e) {
             log.error("Analysis failed", e);
             return ResponseEntity.internalServerError().body(Map.of(
-                    "error", e.getClass().getSimpleName(),
-                    "message", e.getMessage() != null ? e.getMessage() : "Unknown analysis error"
+                    "error", "ANALYSIS_FAILED",
+                    "message", e.getMessage() != null ? e.getMessage() : "Unknown error"
             ));
         }
     }
@@ -201,7 +206,7 @@ public class CopilotController {
             DataEntitiesResponse suggestions = dataModeler.suggestMissingEntities(processJson, dataJson);
             return ResponseEntity.ok(suggestions);
         } catch (Exception e) {
-            log.error("Data auto-discovery failed", e);
+            log.error("Data discovery failed", e);
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -220,7 +225,7 @@ public class CopilotController {
             FormResponse suggestions = formUXDesigner.suggestMissingForms(processJson, dataJson, formsJson);
             return ResponseEntity.ok(suggestions);
         } catch (Exception e) {
-            log.error("Form auto-discovery failed", e);
+            log.error("Form discovery failed", e);
             return ResponseEntity.internalServerError().build();
         }
     }
