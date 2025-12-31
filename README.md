@@ -7,6 +7,10 @@
 
 This project is an intelligent backend service that transforms natural language requirements into executable business processes, data models, and user interfaces. Design complex enterprise application structures with a single prompt, and collaborate in real-time to refine and evolve them.
 
+## ⚖️ Development Philosophy
+### Vibe Coding
+This project is a product of "Vibe Coding."
+
 ## 🚀 Key Features
 
 ### 1. **⚡ Event-Driven Incremental Generation**
